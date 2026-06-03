@@ -1,325 +1,380 @@
+# 城市招聘市场智能分析平台
 """
-数据库连接与会话管理模块。
-
-提供单例 ``DatabaseManager``，封装 Engine / Session 创建及职位数据的增删查操作。
-推荐通过 ``from storage.database import db_manager`` 访问全局实例。
+数据库管理器 - 提供CRUD操作
 """
 
-from __future__ import annotations
-
+from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
-from typing import Any, Generator
+from datetime import datetime
+import logging
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine, and_, or_, func
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 
-from config.settings import settings
-from storage.models import Base, Job
+from config import settings
+from .models import Base, Job
 
-# Job 模型允许通过字典写入的字段（不含自增主键与时间戳，由 ORM 默认填充）
-_JOB_FIELDS = frozenset(
-    {
-        "title",
-        "company",
-        "salary_min",
-        "salary_max",
-        "city",
-        "district",
-        "experience",
-        "education",
-        "skills",
-        "company_size",
-        "company_type",
-        "industry",
-        "description",
-        "url",
-        "source",
-        "is_simulated",
-    }
-)
-
-
-# ---------------------------------------------------------------------------
-# 数据库管理器（单例）
-# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
     """
-    数据库管理器，负责 Engine 生命周期与 CRUD 封装。
-
-    采用单例模式，保证全局仅存在一个连接池实例，避免重复创建 Engine。
+    数据库管理器
+    
+    提供完整的CRUD操作，支持批量插入、条件查询等功能
     """
-
-    _instance: DatabaseManager | None = None
-
-    def __new__(cls) -> DatabaseManager:
+    
+    _instance = None
+    _engine = None
+    _session_factory = None
+    
+    def __new__(cls):
+        """单例模式"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-
-    def __init__(self) -> None:
-        # 单例只初始化一次
+    
+    def __init__(self):
+        """初始化数据库连接"""
         if self._initialized:
             return
-
-        self._engine: Engine = self._create_engine()
-        self._session_factory = sessionmaker(
-            bind=self._engine,
-            autocommit=False,
-            autoflush=False,
-            expire_on_commit=False,
-        )
-        self._ensure_tables()
-        self._initialized = True
-
-    def _create_engine(self) -> Engine:
-        """
-        根据配置创建 SQLAlchemy Engine。
-
-        SQLite 使用 ``StaticPool`` 与 ``check_same_thread=False``，
-        以支持多线程 / 异步场景下的连接复用。
-        """
-        url = settings.database.url
-        echo = settings.debug
-
-        if settings.database.backend == "sqlite":
-            # 确保 SQLite 文件所在目录存在
-            settings.database.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-
-            return create_engine(
-                url,
+            
+        db_url = settings.get_db_url()
+        logger.info(f"初始化数据库连接: {db_url}")
+        
+        # 创建引擎
+        if 'sqlite' in db_url:
+            # SQLite特殊配置
+            self._engine = create_engine(
+                db_url,
                 connect_args={"check_same_thread": False},
                 poolclass=StaticPool,
-                echo=echo,
+                echo=False
             )
-
-        return create_engine(url, echo=echo)
-
-    def _ensure_tables(self) -> None:
-        """若表不存在则自动建表。"""
+        else:
+            self._engine = create_engine(
+                db_url,
+                pool_pre_ping=True,
+                pool_size=10,
+                max_overflow=20,
+                echo=False
+            )
+        
+        # 创建会话工厂
+        self._session_factory = sessionmaker(bind=self._engine)
+        
+        # 创建表
+        self._create_tables()
+        
+        self._initialized = True
+        logger.info("数据库初始化完成")
+    
+    def _create_tables(self):
+        """创建所有表"""
         Base.metadata.create_all(self._engine)
-
-    @property
-    def engine(self) -> Engine:
-        """暴露底层 Engine，供迁移脚本或原生 SQL 使用。"""
-        return self._engine
-
+        logger.info("数据库表创建完成")
+    
     @contextmanager
-    def get_session(self) -> Generator[Session, None, None]:
+    def get_session(self) -> Session:
         """
-        获取数据库会话的上下文管理器。
-
-        正常结束时自动 ``commit``，异常时 ``rollback`` 并向上抛出。
-
+        获取数据库会话的上下文管理器
+        
         Yields:
-            活跃的 ``Session`` 实例。
-
-        Example:
-            with db_manager.get_session() as session:
-                session.add(job)
+            Session: 数据库会话
         """
         session = self._session_factory()
         try:
             yield session
             session.commit()
-        except Exception:
+        except Exception as e:
             session.rollback()
+            logger.error(f"数据库操作失败: {e}")
             raise
         finally:
             session.close()
-
-    @staticmethod
-    def _build_job(job_data: dict[str, Any]) -> Job:
+    
+    def add_job(self, job_data: Dict[str, Any]) -> Optional[Job]:
         """
-        从字典构造 ``Job`` 实例，忽略未知字段。
-
+        添加单条职位数据
+        
         Args:
-            job_data: 职位字段字典，键名需与模型属性一致。
-
+            job_data: 职位数据字典
+            
         Returns:
-            未持久化的 ``Job`` 对象。
-        """
-        payload = {k: v for k, v in job_data.items() if k in _JOB_FIELDS}
-        return Job(**payload)
-
-    @staticmethod
-    def _apply_filters(
-        stmt: Any,
-        *,
-        city: str | None = None,
-        source: str | None = None,
-        company: str | None = None,
-        industry: str | None = None,
-        title_keyword: str | None = None,
-        min_salary: float | None = None,
-        max_salary: float | None = None,
-        is_simulated: bool | None = None,
-    ) -> Any:
-        """
-        为查询语句追加可选过滤条件。
-
-        Args:
-            stmt: SQLAlchemy ``select`` 语句。
-            city: 精确匹配城市。
-            source: 精确匹配数据来源。
-            company: 公司名称模糊匹配（包含）。
-            industry: 精确匹配行业。
-            title_keyword: 职位名称模糊匹配（包含）。
-            min_salary: 期望最低薪资（K/月），筛选 ``salary_max >= min_salary`` 的职位。
-            max_salary: 期望最高薪资（K/月），筛选 ``salary_min <= max_salary`` 的职位。
-            is_simulated: 是否仅查询模拟数据。
-
-        Returns:
-            附加了 ``where`` 子句的查询语句。
-        """
-        if city is not None:
-            stmt = stmt.where(Job.city == city)
-        if source is not None:
-            stmt = stmt.where(Job.source == source)
-        if company is not None:
-            stmt = stmt.where(Job.company.contains(company))
-        if industry is not None:
-            stmt = stmt.where(Job.industry == industry)
-        if title_keyword is not None:
-            stmt = stmt.where(Job.title.contains(title_keyword))
-        if min_salary is not None:
-            stmt = stmt.where(Job.salary_max >= min_salary)
-        if max_salary is not None:
-            stmt = stmt.where(Job.salary_min <= max_salary)
-        if is_simulated is not None:
-            stmt = stmt.where(Job.is_simulated == is_simulated)
-        return stmt
-
-    def add_job(self, job_data: dict[str, Any]) -> int | None:
-        """
-        新增单条职位记录。
-
-        若 ``url`` 非空且库中已存在相同 URL，则跳过插入（去重）。
-
-        Args:
-            job_data: 职位字段字典。
-
-        Returns:
-            新记录的主键 ``id``；因 URL 重复被跳过时返回 ``None``。
+            Job: 创建的职位对象
         """
         with self.get_session() as session:
-            url = job_data.get("url")
-            if url:
-                existing = session.scalar(
-                    select(Job.id).where(Job.url == url).limit(1)
-                )
-                if existing is not None:
+            # 检查是否已存在（根据URL去重）
+            if job_data.get('url'):
+                exists = session.query(Job).filter(Job.url == job_data['url']).first()
+                if exists:
+                    logger.debug(f"职位已存在，跳过: {job_data.get('title')}")
                     return None
-
-            job = self._build_job(job_data)
+            
+            job = Job(**job_data)
             session.add(job)
             session.flush()
-            return job.id
-
-    def add_jobs_batch(self, jobs_data: list[dict[str, Any]]) -> dict[str, int]:
+            job_id = job.id
+            return job
+    
+    def add_jobs_batch(self, jobs_data: List[Dict[str, Any]]) -> int:
         """
-        批量新增职位记录，逐条进行 URL 去重。
-
+        批量添加职位数据
+        
         Args:
-            jobs_data: 职位字典列表。
-
+            jobs_data: 职位数据列表
+            
         Returns:
-            统计结果 ``{"added": 成功条数, "skipped": 跳过条数}``。
+            int: 实际插入的数量
         """
-        added = 0
-        skipped = 0
-
+        if not jobs_data:
+            return 0
+        
+        added_count = 0
         with self.get_session() as session:
+            # 获取已存在的URL集合
+            urls = {job_data.get('url') for job_data in jobs_data if job_data.get('url')}
+            existing_urls = set()
+            if urls:
+                existing = session.query(Job.url).filter(Job.url.in_(urls)).all()
+                existing_urls = {row[0] for row in existing}
+            
+            # 过滤并添加新数据
+            new_jobs = []
             for job_data in jobs_data:
-                url = job_data.get("url")
-                if url:
-                    existing = session.scalar(
-                        select(Job.id).where(Job.url == url).limit(1)
-                    )
-                    if existing is not None:
-                        skipped += 1
-                        continue
-
-                session.add(self._build_job(job_data))
-                # flush 使同批次内后续记录能检测到刚插入的 URL
-                session.flush()
-                added += 1
-
-        return {"added": added, "skipped": skipped}
-
-    def get_all_jobs(self) -> list[dict[str, Any]]:
+                if job_data.get('url') and job_data['url'] in existing_urls:
+                    continue
+                new_jobs.append(Job(**job_data))
+                existing_urls.add(job_data.get('url'))
+            
+            if new_jobs:
+                session.bulk_save_objects(new_jobs)
+                added_count = len(new_jobs)
+        
+        logger.info(f"批量插入完成，新增 {added_count} 条数据")
+        return added_count
+    
+    def get_job_by_id(self, job_id: int) -> Optional[Dict]:
         """
-        查询全部职位记录。
-
-        必须在 Session 仍活跃时调用 ``to_dict()``，避免延迟加载导致的数据失效。
-
+        根据ID获取职位
+        
+        Args:
+            job_id: 职位ID
+            
         Returns:
-            职位字典列表，按 ``id`` 升序排列。
+            Dict: 职位字典
         """
         with self.get_session() as session:
-            jobs = session.scalars(select(Job).order_by(Job.id)).all()
-            return [job.to_dict() for job in jobs]
-
+            job = session.query(Job).filter(Job.id == job_id).first()
+            if job:
+                # 在session内转换为字典，避免detached问题
+                return {
+                    'id': job.id,
+                    'title': job.title,
+                    'company': job.company,
+                    'salary_min': job.salary_min,
+                    'salary_max': job.salary_max,
+                    'city': job.city,
+                    'experience': job.experience,
+                    'education': job.education,
+                    'skills': job.skills,
+                    'company_size': job.company_size,
+                    'company_type': job.company_type,
+                    'industry': job.industry,
+                    'description': job.description,
+                    'url': job.url,
+                    'source': job.source,
+                    'created_at': job.created_at.isoformat() if job.created_at else None,
+                    'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                }
+            return None
+    
     def get_jobs(
         self,
-        *,
-        city: str | None = None,
-        source: str | None = None,
-        company: str | None = None,
-        industry: str | None = None,
-        title_keyword: str | None = None,
-        min_salary: float | None = None,
-        max_salary: float | None = None,
-        is_simulated: bool | None = None,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> list[dict[str, Any]]:
+        city: Optional[str] = None,
+        source: Optional[str] = None,
+        industry: Optional[str] = None,
+        keyword: Optional[str] = None,
+        experience: Optional[str] = None,
+        education: Optional[str] = None,
+        company_size: Optional[str] = None,
+        company_type: Optional[str] = None,
+        salary_min: Optional[float] = None,
+        salary_max: Optional[float] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict]:
         """
-        按多条件过滤查询职位记录。
-
-        所有过滤参数均为可选，不传则不作为筛选条件。
-        同样在 Session 内完成 ``to_dict()`` 转换。
-
+        条件查询职位列表
+        
         Args:
-            city: 城市（精确匹配）。
-            source: 数据来源（精确匹配）。
-            company: 公司名称（模糊匹配）。
-            industry: 行业（精确匹配）。
-            title_keyword: 职位名称关键词（模糊匹配）。
-            min_salary: 最低期望薪资（K/月）。
-            max_salary: 最高期望薪资（K/月）。
-            is_simulated: 是否模拟数据。
-            limit: 返回条数上限，``None`` 表示不限制。
-            offset: 分页偏移量，默认 0。
-
+            city: 城市
+            source: 数据来源
+            industry: 行业
+            keyword: 关键词（搜索职位名称和公司名称）
+            experience: 经验要求
+            education: 学历要求
+            company_size: 公司规模
+            company_type: 公司类型
+            salary_min: 最低薪资
+            salary_max: 最高薪资
+            limit: 返回数量限制
+            offset: 偏移量
+            
         Returns:
-            符合条件的职位字典列表，按 ``id`` 升序排列。
+            List[Dict]: 职位字典列表
         """
         with self.get_session() as session:
-            stmt = select(Job).order_by(Job.id)
-            stmt = self._apply_filters(
-                stmt,
-                city=city,
-                source=source,
-                company=company,
-                industry=industry,
-                title_keyword=title_keyword,
-                min_salary=min_salary,
-                max_salary=max_salary,
-                is_simulated=is_simulated,
-            )
-            if offset:
-                stmt = stmt.offset(offset)
-            if limit is not None:
-                stmt = stmt.limit(limit)
-
-            jobs = session.scalars(stmt).all()
+            query = session.query(Job)
+            
+            # 动态添加过滤条件
+            if city:
+                query = query.filter(Job.city == city)
+            if source:
+                query = query.filter(Job.source == source)
+            if industry:
+                query = query.filter(Job.industry == industry)
+            if keyword:
+                search = f"%{keyword}%"
+                query = query.filter(
+                    or_(
+                        Job.title.like(search),
+                        Job.company.like(search)
+                    )
+                )
+            if experience:
+                query = query.filter(Job.experience == experience)
+            if education:
+                query = query.filter(Job.education == education)
+            if company_size:
+                query = query.filter(Job.company_size == company_size)
+            if company_type:
+                query = query.filter(Job.company_type == company_type)
+            if salary_min:
+                query = query.filter(Job.salary_max >= salary_min)
+            if salary_max:
+                query = query.filter(Job.salary_min <= salary_max)
+            
+            # 按创建时间倒序
+            query = query.order_by(Job.created_at.desc())
+            
+            # 分页
+            jobs = query.offset(offset).limit(limit).all()
             return [job.to_dict() for job in jobs]
+    
+    def get_all_jobs(self) -> List[Dict]:
+        """
+        获取所有职位
+        
+        Returns:
+            List[Dict]: 所有职位字典列表
+        """
+        with self.get_session() as session:
+            jobs = session.query(Job).order_by(Job.created_at.desc()).all()
+            return [job.to_dict() for job in jobs]
+    
+    def count_jobs(
+        self,
+        city: Optional[str] = None,
+        source: Optional[str] = None,
+        industry: Optional[str] = None,
+        keyword: Optional[str] = None
+    ) -> int:
+        """
+        统计职位数量
+        
+        Returns:
+            int: 职位数量
+        """
+        with self.get_session() as session:
+            query = session.query(func.count(Job.id))
+            
+            if city:
+                query = query.filter(Job.city == city)
+            if source:
+                query = query.filter(Job.source == source)
+            if industry:
+                query = query.filter(Job.industry == industry)
+            if keyword:
+                search = f"%{keyword}%"
+                query = query.filter(
+                    or_(
+                        Job.title.like(search),
+                        Job.company.like(search)
+                    )
+                )
+            
+            return query.scalar()
+    
+    def get_distinct_values(self, field: str) -> List[str]:
+        """
+        获取指定字段的所有不重复值
+        
+        Args:
+            field: 字段名
+            
+        Returns:
+            List[str]: 不重复值列表
+        """
+        with self.get_session() as session:
+            if hasattr(Job, field):
+                values = session.query(getattr(Job, field)).distinct().all()
+                return [v[0] for v in values if v[0]]
+        return []
+    
+    def delete_job(self, job_id: int) -> bool:
+        """
+        删除职位
+        
+        Args:
+            job_id: 职位ID
+            
+        Returns:
+            bool: 是否删除成功
+        """
+        with self.get_session() as session:
+            job = session.query(Job).filter(Job.id == job_id).first()
+            if job:
+                session.delete(job)
+                return True
+        return False
+    
+    def clear_all_jobs(self) -> int:
+        """
+        清空所有职位数据
+        
+        Returns:
+            int: 删除的数量
+        """
+        with self.get_session() as session:
+            count = session.query(Job).count()
+            session.query(Job).delete()
+            return count
+    
+    def update_job(self, job_id: int, update_data: Dict[str, Any]) -> Optional[Job]:
+        """
+        更新职位数据
+        
+        Args:
+            job_id: 职位ID
+            update_data: 更新数据
+            
+        Returns:
+            Job: 更新后的职位
+        """
+        with self.get_session() as session:
+            job = session.query(Job).filter(Job.id == job_id).first()
+            if job:
+                for key, value in update_data.items():
+                    if hasattr(job, key):
+                        setattr(job, key, value)
+                job.updated_at = datetime.now()
+                session.flush()
+                return job
+        return None
 
 
-# 全局单例：项目内统一引用此实例
+# 创建全局数据库管理器实例
 db_manager = DatabaseManager()

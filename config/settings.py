@@ -1,143 +1,126 @@
+# 城市招聘市场智能分析平台
 """
-项目全局配置模块。
-
-本模块集中管理路径、数据库等运行时配置，供 crawler、storage、api 等子模块统一引用。
-推荐通过 ``from config.settings import settings`` 访问配置，避免在各处硬编码路径。
+配置文件 - 集中管理所有配置项
 """
-
-from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
 
-# ---------------------------------------------------------------------------
-# 路径常量
-# ---------------------------------------------------------------------------
+# 项目根目录
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-# 项目根目录：当前文件位于 config/ 下，因此向上两级即为项目根
-BASE_DIR: Path = Path(__file__).resolve().parent.parent
-
-# SQLite 默认数据库文件路径
-DEFAULT_SQLITE_PATH: Path = BASE_DIR / "data" / "jobs.db"
-
-# 支持的数据库后端类型
-DatabaseBackend = Literal["sqlite", "mysql"]
-
-
-# ---------------------------------------------------------------------------
 # 数据库配置
-# ---------------------------------------------------------------------------
-
-
-@dataclass
 class DatabaseConfig:
-    """
-    数据库连接配置。
-
-    Attributes:
-        backend: 数据库类型，``"sqlite"`` 或 ``"mysql"``，默认 SQLite。
-        sqlite_path: SQLite 数据库文件路径，仅在 backend 为 sqlite 时使用。
-        mysql_host: MySQL 主机地址。
-        mysql_port: MySQL 端口。
-        mysql_user: MySQL 用户名。
-        mysql_password: MySQL 密码。
-        mysql_database: MySQL 数据库名。
-    """
-
-    backend: DatabaseBackend = "mysql"
-    sqlite_path: Path = field(default_factory=lambda: DEFAULT_SQLITE_PATH)
-
-    # MySQL 相关参数（backend="mysql" 时生效）
-    mysql_host: str = "127.0.0.1"
-    mysql_port: int = 3307
-    mysql_user: str = "root"
-    mysql_password: str = "123456"
-    mysql_database: str = "job_analysis"
-
+    """数据库配置"""
+    # 默认使用MySQL（生产环境）
+    DB_TYPE = os.getenv('DB_TYPE', 'mysql')  # sqlite / mysql
+    
+    # SQLite配置
+    SQLITE_PATH = BASE_DIR / 'data' / 'jobs.db'
+    SQLITE_URL = f'sqlite:///{SQLITE_PATH}'
+    
+    # MySQL配置（预留，方便后续切换）
+    MYSQL_HOST = os.getenv('MYSQL_HOST', 'localhost')
+    MYSQL_PORT = int(os.getenv('MYSQL_PORT', 3307))
+    MYSQL_USER = os.getenv('MYSQL_USER', 'root')
+    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '123456')
+    MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'job_analysis')
+    MYSQL_URL = f'mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}'
+    
     @property
-    def url(self) -> str:
-        """
-        生成 SQLAlchemy 兼容的数据库连接 URL。
+    def url(self):
+        """获取当前数据库URL"""
+        if self.DB_TYPE == 'mysql':
+            return self.MYSQL_URL
+        return self.SQLITE_URL
 
-        Returns:
-            - SQLite: ``sqlite:////absolute/path/to/jobs.db``
-            - MySQL:  ``mysql+pymysql://user:pass@host:port/database``
+# Redis配置
+class RedisConfig:
+    """Redis配置（预留）"""
+    REDIS_ENABLED = os.getenv('REDIS_ENABLED', 'false').lower() == 'true'
+    REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+    REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+    REDIS_DB = int(os.getenv('REDIS_DB', 0))
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
+    
+    # 缓存配置
+    CACHE_TTL = 3600  # 缓存过期时间（秒）
+    CACHE_MAX_SIZE = 1000  # 最大缓存条数
 
-        Raises:
-            ValueError: 当 backend 不是支持的类型时抛出。
-        """
-        if self.backend == "sqlite":
-            # as_posix() 保证跨平台路径格式；resolve() 转为绝对路径
-            db_file = self.sqlite_path.resolve().as_posix()
-            return f"sqlite:///{db_file}"
+# 爬虫配置
+class CrawlerConfig:
+    """爬虫配置"""
+    # 请求间隔（秒）
+    REQUEST_INTERVAL_MIN = 2.0
+    REQUEST_INTERVAL_MAX = 5.0
+    
+    # 请求超时（秒）
+    REQUEST_TIMEOUT = 30
+    
+    # 重试次数
+    MAX_RETRIES = 3
+    
+    # User-Agent列表
+    USER_AGENTS = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    ]
+    
+    # 爬虫开关
+    BOSS_ENABLED = True
+    ZHILIAN_ENABLED = True
+    QIANCHENG_ENABLED = True
 
-        if self.backend == "mysql":
-            return (
-                f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
-                f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
-            )
+# Streamlit配置
+class StreamlitConfig:
+    """Streamlit Web配置"""
+    PAGE_TITLE = "城市招聘市场智能分析平台"
+    PAGE_ICON = "📊"
+    LAYOUT = "wide"
+    INITIAL_SIDEBAR_STATE = "expanded"
+    
+    # 主题颜色
+    PRIMARY_COLOR = "#1f77b4"
+    SECONDARY_COLOR = "#ff7f0e"
+    SUCCESS_COLOR = "#2ca02c"
+    WARNING_COLOR = "#d62728"
 
-        raise ValueError(f"不支持的数据库类型: {self.backend!r}")
+# 路径配置
+class PathConfig:
+    """路径配置"""
+    BASE_DIR = BASE_DIR
+    DATA_DIR = BASE_DIR / 'data'
+    LOG_DIR = BASE_DIR / 'logs'
+    EXPORT_DIR = BASE_DIR / 'exports'
+    
+    # 确保目录存在
+    @staticmethod
+    def ensure_dirs():
+        """确保必要目录存在"""
+        PathConfig.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        PathConfig.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        PathConfig.EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-# ---------------------------------------------------------------------------
-# 应用级配置
-# ---------------------------------------------------------------------------
-
-
-@dataclass
+# 主配置类
 class Settings:
-    """
-    应用全局设置容器。
+    """配置管理单例类"""
+    def __init__(self):
+        self.database = DatabaseConfig()
+        self.redis = RedisConfig()
+        self.crawler = CrawlerConfig()
+        self.streamlit = StreamlitConfig()
+        self.path = PathConfig()
+        
+        # 确保目录存在
+        self.path.ensure_dirs()
+    
+    def get_db_url(self):
+        """获取数据库URL"""
+        return self.database.url
 
-    可通过环境变量覆盖部分配置，便于本地开发与生产部署切换。
-    """
-
-    debug: bool = False
-    database: DatabaseConfig = field(default_factory=DatabaseConfig)
-
-    @classmethod
-    def from_env(cls) -> Settings:
-        """
-        从环境变量构建配置实例。
-
-        支持的环境变量:
-            APP_DEBUG          - 是否开启调试模式（"1"/"true" 为真）
-            DB_BACKEND         - 数据库类型: sqlite | mysql
-            DB_SQLITE_PATH     - SQLite 文件路径（可选）
-            MYSQL_HOST         - MySQL 主机
-            MYSQL_PORT         - MySQL 端口
-            MYSQL_USER         - MySQL 用户名
-            MYSQL_PASSWORD     - MySQL 密码
-            MYSQL_DATABASE     - MySQL 数据库名
-        """
-        backend = os.getenv("DB_BACKEND", "sqlite").lower()
-        if backend not in ("sqlite", "mysql"):
-            raise ValueError(
-                f"DB_BACKEND 必须是 'sqlite' 或 'mysql'，当前值: {backend!r}"
-            )
-
-        sqlite_path = Path(
-            os.getenv("DB_SQLITE_PATH", str(DEFAULT_SQLITE_PATH))
-        )
-
-        database = DatabaseConfig(
-            backend=backend,  # type: ignore[arg-type]
-            sqlite_path=sqlite_path,
-            mysql_host=os.getenv("MYSQL_HOST", "127.0.0.1"),
-            mysql_port=int(os.getenv("MYSQL_PORT", "3306")),
-            mysql_user=os.getenv("MYSQL_USER", "root"),
-            mysql_password=os.getenv("MYSQL_PASSWORD", ""),
-            mysql_database=os.getenv("MYSQL_DATABASE", "jobs"),
-        )
-
-        debug_raw = os.getenv("APP_DEBUG", "").lower()
-        debug = debug_raw in ("1", "true", "yes")
-
-        return cls(debug=debug, database=database)
-
-
-# 全局单例：项目内统一引用此实例
-settings: Settings = Settings()
+# 创建全局配置实例
+settings = Settings()

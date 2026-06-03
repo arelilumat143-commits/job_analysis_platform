@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>招聘分析平台 — UI 调试</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        /* ===========================================================
+           莫兰迪设计系统 — 和 app.py 完全一致
+           =========================================================== */
+        :root {
+            --primary:       #5B8DEF;
+            --primary-light: #8BABF0;
+            --primary-soft:  #EEF2FB;
+            --primary-subtle:#F6F8FD;
+            --green:         #7EB8A0;
+            --green-soft:    #EEF5F1;
+            --red:           #C48B8B;
+            --red-soft:      #FBF3F3;
+            --orange:        #C9A87C;
+            --purple:        #9B8EC4;
+            --bg-page:       #FAFAFA;
+            --bg-card:       #FFFFFF;
+            --bg-sidebar:    #F5F6F8;
+            --text-1:        #2C2C2C;
+            --text-2:        #6B6B6B;
+            --text-3:        #A0A0A0;
+            --border:        #F0F0F0;
+            --shadow:        0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+            --shadow-hover:  0 2px 8px rgba(0,0,0,0.06);
+            --radius:        16px;
+            --radius-sm:     10px;
+            --font:          'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font);
+            background: var(--bg-page);
+            color: var(--text-1);
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* ========== 侧边栏 ========== */
+        .sidebar {
+            width: 240px;
+            min-width: 240px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
+            padding: 24px 0;
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+        .sidebar .brand {
+            padding: 0 16px 20px 16px;
+            margin-bottom: 8px;
+        }
+        .sidebar .brand .name {
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: var(--text-1);
+        }
+        .sidebar .brand .sub  {
+            font-size: 12px;
+            color: var(--text-3);
+            margin-top: 4px;
+        }
+        .sidebar .db-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 18px;
+            margin: 0 12px 20px 12px;
+            background: #FFF;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            font-size: 12px;
+        }
+        .sidebar .db-status .dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+        .sidebar .nav-title {
+            font-size: 11px;
+            color: var(--text-3);
+            padding: 0 18px;
+            margin: 0 0 4px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-weight: 500;
+        }
+        .sidebar .nav-item {
+            padding: 8px 16px;
+            margin: 2px 8px;
+            border-radius: 12px;
+            font-size: 14px;
+            color: var(--text-2);
+            cursor: pointer;
+            transition: background 0.3s ease;
+            user-select: none;
+        }
+        .sidebar .nav-item:hover { background: rgba(91,141,239,0.06); }
+        .sidebar .nav-item.active {
+            background: var(--primary-soft);
+            color: var(--primary);
+            font-weight: 500;
+        }
+        .sidebar .sys-info {
+            font-size: 12px;
+            color: var(--text-3);
+            padding: 0 18px;
+            line-height: 2.2;
+            margin-top: auto;
+        }
+        .sidebar .sys-info .row {
+            display: flex;
+            justify-content: space-between;
+        }
+        .sidebar .sys-info .row span:last-child { color: var(--text-2); }
+        .sidebar .refresh-btn {
+            margin: 12px;
+            padding: 8px 16px;
+            border-radius: 12px;
+            border: none;
+            background: var(--primary);
+            color: #FFF;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            transition: filter 0.3s;
+        }
+        .sidebar .refresh-btn:hover { filter: brightness(0.96); }
+        .sidebar .version {
+            padding: 0 18px;
+            font-size: 10px;
+            color: var(--text-3);
+        }
+
+        /* ========== 主内容区 ========== */
+        .main {
+            flex: 1;
+            padding: 2rem 3rem 3rem 3rem;
+            max-width: 1200px;
+        }
+
+        /* ── 页面标题 ── */
+        .page-hero {
+            margin-bottom: 36px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+        .page-hero .page-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-1);
+            margin-bottom: 6px;
+            letter-spacing: -0.01em;
+        }
+        .page-hero .page-subtitle {
+            font-size: 0.88rem;
+            color: var(--text-3);
+        }
+
+        /* ── 指标卡片行 ── */
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .metric-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 28px 24px;
+            box-shadow: var(--shadow);
+            text-align: center;
+            transition: box-shadow 0.4s;
+        }
+        .metric-card:hover { box-shadow: var(--shadow-hover); }
+        .metric-card .icon { font-size: 1.5rem; margin-bottom: 10px; opacity: 0.7; }
+        .metric-card .value {
+            font-size: 2.2rem;
+            font-weight: 600;
+            color: var(--text-1);
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+        }
+        .metric-card .label {
+            font-size: 0.82rem;
+            color: var(--text-3);
+            margin-top: 6px;
+        }
+
+        /* ── 内容卡片 ── */
+        .content-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 28px 32px;
+            box-shadow: var(--shadow);
+            margin-bottom: 16px;
+        }
+        .content-card h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-1);
+            margin-bottom: 12px;
+        }
+
+        /* ── 图表网格 ── */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .chart-box { width: 100%; height: 380px; }
+
+        /* ── 引导卡片 ── */
+        .guide-card {
+            background: var(--primary-subtle);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            margin-bottom: 24px;
+        }
+        .guide-card p {
+            margin: 0;
+            color: var(--text-2);
+            font-size: 0.88rem;
+        }
+
+        /* ── Tab 切换 ── */
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 24px;
+        }
+        .tab-item {
+            padding: 12px 24px;
+            font-size: 14px;
+            color: var(--text-3);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+            background: none;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+        }
+        .tab-item:hover { color: var(--text-2); }
+        .tab-item.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            font-weight: 500;
+        }
+
+        /* ── 筛选栏 ── */
+        .filter-bar {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .filter-group { display: flex; flex-direction: column; gap: 4px; }
+        .filter-group label { font-size: 12px; color: var(--text-3); font-weight: 500; }
+        .filter-group input,
+        .filter-group select {
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            font-size: 13px;
+            font-family: var(--font);
+            color: var(--text-1);
+            background: #FFF;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .filter-group input:focus,
+        .filter-group select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--primary-soft);
+        }
+        .btn {
+            padding: 10px 22px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            transition: filter 0.3s;
+            letter-spacing: 0.01em;
+        }
+        .btn-primary { background: var(--primary); color: #FFF; }
+        .btn-primary:hover { filter: brightness(0.96); }
+        .btn-outline { background: #FFF; color: var(--primary); border: 1px solid var(--primary); }
+
+        /* ── 表格 ── */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        th {
+            background: var(--bg-sidebar);
+            color: var(--text-2);
+            font-weight: 500;
+            font-size: 13px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+        }
+        td {
+            padding: 10px 16px;
+            border: none;
+            color: var(--text-1);
+            font-size: 13px;
+        }
+        tr:nth-child(even) td { background: #FAFAFA; }
+
+        /* ── 预测结果卡片 ── */
+        .predict-result {
+            background: var(--primary-subtle);
+            border-radius: var(--radius);
+            padding: 28px 32px;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .predict-result .salary {
+            font-size: 2.6rem;
+            font-weight: 600;
+            color: var(--primary);
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+        .predict-result .salary span {
+            font-size: 0.9rem;
+            font-weight: 400;
+            color: var(--text-2);
+        }
+
+        /* ── 页脚 ── */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            font-size: 10px;
+            color: var(--text-3);
+        }
+
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: static; }
+            .main { padding: 1rem; }
+            .metrics-row { grid-template-columns: repeat(2, 1fr); }
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ========== 侧边栏（和 app.py 一样）========== -->
+<aside class="sidebar">
+    <div class="brand">
+        <div class="name">招聘分析平台</div>
+        <div class="sub">Job Analytics</div>
+    </div>
+
+    <div class="db-status">
+        <span class="dot"></span>
+        <span style="color:var(--text-3)">数据库</span>
+        <span style="color:var(--text-1);font-weight:500;margin-left:auto">MYSQL</span>
+    </div>
+
+    <div class="nav-title">导航</div>
+    <div class="nav-item active" data-page="overview">◉  首页概览</div>
+    <div class="nav-item" data-page="salary">◇  薪资分析</div>
+    <div class="nav-item" data-page="skills">○  技能分析</div>
+    <div class="nav-item" data-page="recommend">□  岗位推荐</div>
+    <div class="nav-item" data-page="data">△  数据管理</div>
+    <div class="nav-item" data-page="ai">▽  AI智能报告</div>
+
+    <div style="height:24px;"></div>
+    <div class="nav-title">系统</div>
+    <div class="sys-info">
+        <div class="row"><span>项目</span><span>analysis_platform</span></div>
+        <div class="row"><span>数据库</span><span>job_analysis</span></div>
+    </div>
+
+    <button class="refresh-btn" onclick="location.reload()">刷新数据缓存</button>
+    <div class="version">v2.0 · Morandi Edition</div>
+</aside>
+
+<!-- ========== 主内容 ========== -->
+<main class="main">
+
+    <!-- ── 页面标题 ── -->
+    <div class="page-hero">
+        <div class="page-title">首页概览</div>
+        <div class="page-subtitle">平台数据总览与核心指标一览，实时掌握招聘市场动态</div>
+    </div>
+
+    <!-- ── 指标卡片 ── -->
+    <div class="metrics-row">
+        <div class="metric-card">
+            <div class="icon">◉</div>
+            <div class="value">3,048</div>
+            <div class="label">总职位数</div>
+        </div>
+        <div class="metric-card">
+            <div class="icon">◇</div>
+            <div class="value">18.5 K</div>
+            <div class="label">平均月薪</div>
+        </div>
+        <div class="metric-card">
+            <div class="icon">○</div>
+            <div class="value">成都</div>
+            <div class="label">热门城市</div>
+        </div>
+        <div class="metric-card">
+            <div class="icon">□</div>
+            <div class="value">Python</div>
+            <div class="label">热门技能</div>
+        </div>
+    </div>
+
+    <!-- ── 图表行 1 ── -->
+    <div class="chart-grid">
+        <div class="content-card">
+            <h3>城市职位分布 Top 10</h3>
+            <div class="chart-box" id="chart-cities"></div>
+        </div>
+        <div class="content-card">
+            <h3>薪资分布直方图</h3>
+            <div class="chart-box" id="chart-salary-hist"></div>
+        </div>
+    </div>
+
+    <!-- ── 图表行 2 ── -->
+    <div class="chart-grid">
+        <div class="content-card">
+            <h3>招聘来源占比</h3>
+            <div class="chart-box" id="chart-source"></div>
+        </div>
+        <div class="content-card">
+            <h3>行业分布 Top 8</h3>
+            <div class="chart-box" id="chart-industry"></div>
+        </div>
+    </div>
+
+</main>
+
+<!-- ========== 图表 ========== -->
+<script>
+// 莫兰迪配色
+var COLORS = ['#5B8DEF','#7EB8A0','#9B8EC4','#C9A87C','#8BABF0','#A8D0C0','#B8AED8','#D4BC9A'];
+var BLUES  = ['#EEF2FB','#D4E0F8','#A8C2F2','#7BA6EC','#5B8DEF'];
+var GREENS = ['#EDF5F1','#D4EBE2','#A8D8C4','#7EC5A6','#5EB28E'];
+
+// ---- 模拟数据 ----
+var cityData = [
+    ['北京',3200],['成都',2800],['上海',2200],['深圳',1900],
+    ['杭州',1600],['武汉',1400],['广州',1200],['南京',950],
+    ['西安',820],['郑州',700]
+].reverse();
+
+var salaryHistData = [
+    18,22,21,28,15,12,25,19,17,30,20,16,22,14,35,24,18,26,13,19,
+    21,29,16,11,23,27,17,33,20,15,24,22,19,31,18,25,14,28,21,17
+];
+
+var sourceData = [
+    {name:'智联招聘',value:2800},{name:'BOSS直聘',value:180},
+    {name:'拉勾',value:50},{name:'其他',value:18}
+];
+
+var industryData = [
+    ['互联网',2100],['人工智能',650],['金融',420],['电商',380],
+    ['教育',280],['医疗',200],['游戏',170],['制造业',130]
+];
+
+// ---- 城市柱状图 ----
+(function(){
+    var c = echarts.init(document.getElementById('chart-cities'));
+    c.setOption({
+        tooltip: { trigger:'axis' },
+        grid: { left:50, right:10, top:10, bottom:20 },
+        xAxis: { type:'value', axisLabel:{color:'#A0A0A0',fontSize:11},
+                 axisLine:{lineStyle:{color:'#F0F0F0'}}, splitLine:{lineStyle:{color:'#F5F5F5'}} },
+        yAxis: { type:'category', data:cityData.map(function(d){return d[0]}),
+                 axisLabel:{color:'#2C2C2C',fontSize:12}, axisLine:{show:false},
+                 inverse:true },
+        series: [{ type:'bar', data:cityData.map(function(d){return d[1]}),
+                   barWidth:16, itemStyle:{borderRadius:[0,4,4,0],
+                   color: new echarts.graphic.LinearGradient(0,0,1,0,[
+                       {offset:0,color:'#EEF2FB'},{offset:1,color:'#5B8DEF'}
+                   ])}}]
+    });
+    window.addEventListener('resize',function(){c.resize()});
+})();
+
+// ---- 薪资直方图 ----
+(function(){
+    var c = echarts.init(document.getElementById('chart-salary-hist'));
+    c.setOption({
+        tooltip: { trigger:'axis' },
+        grid: { left:40, right:10, top:20, bottom:20 },
+        xAxis: { type:'category',
+                 data: ['0-5','5-10','10-15','15-20','20-25','25-30','30-35','35-40','40+'],
+                 axisLabel:{color:'#A0A0A0',fontSize:11} },
+        yAxis: { type:'value', axisLabel:{color:'#A0A0A0',fontSize:11},
+                 splitLine:{lineStyle:{color:'#F5F5F5'}} },
+        series: [{ type:'bar', data:[2,5,8,12,7,4,1,1,0], barWidth:'60%',
+                   itemStyle:{color:'#5B8DEF',borderRadius:[4,4,0,0],opacity:0.85} }]
+    });
+    window.addEventListener('resize',function(){c.resize()});
+})();
+
+// ---- 来源饼图 ----
+(function(){
+    var c = echarts.init(document.getElementById('chart-source'));
+    c.setOption({
+        tooltip: { trigger:'item' },
+        series: [{ type:'pie', radius:['50%','80%'], center:['50%','55%'],
+                   itemStyle:{borderRadius:6,borderColor:'#fff',borderWidth:3},
+                   label:{color:'#6B6B6B',fontSize:12},
+                   data: sourceData.map(function(d,i){
+                       return {value:d.value, name:d.name, itemStyle:{color:COLORS[i]}};
+                   }),
+                   emphasis:{scaleSize:6} }]
+    });
+    window.addEventListener('resize',function(){c.resize()});
+})();
+
+// ---- 行业柱状图 ----
+(function(){
+    var c = echarts.init(document.getElementById('chart-industry'));
+    c.setOption({
+        tooltip: { trigger:'axis' },
+        grid: { left:70, right:10, top:10, bottom:20 },
+        xAxis: { type:'value', axisLabel:{color:'#A0A0A0',fontSize:11} },
+        yAxis: { type:'category', data:industryData.map(function(d){return d[0]}),
+                 inverse:true, axisLabel:{color:'#2C2C2C',fontSize:12} },
+        series: [{ type:'bar', data:industryData.map(function(d){return d[1]}),
+                   barWidth:16, itemStyle:{borderRadius:[0,4,4,0],
+                   color: new echarts.graphic.LinearGradient(0,0,1,0,[
+                       {offset:0,color:'#D4EBE2'},{offset:1,color:'#7EB8A0'}
+                   ])}}]
+    });
+    window.addEventListener('resize',function(){c.resize()});
+})();
+</script>
+
+</body>
+</html>

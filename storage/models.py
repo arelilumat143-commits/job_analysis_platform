@@ -1,133 +1,117 @@
+# 城市招聘市场智能分析平台
 """
-SQLAlchemy ORM 数据模型定义。
-
-本模块定义职位信息表 ``jobs`` 及其字段、索引，供 storage 层持久化与查询使用。
+数据库模型定义 - SQLAlchemy ORM
 """
-
-from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime, JSON, Index
+from sqlalchemy.ext.declarative import declarative_base
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    Float,
-    Index,
-    Integer,
-    JSON,
-    String,
-    Text,
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-# ---------------------------------------------------------------------------
-# ORM 基类
-# ---------------------------------------------------------------------------
-
-
-class Base(DeclarativeBase):
-    """声明式 ORM 基类，所有模型均继承此类。"""
-
-
-# ---------------------------------------------------------------------------
-# 职位信息表
-# ---------------------------------------------------------------------------
-
+# 创建基类
+Base = declarative_base()
 
 class Job(Base):
     """
-    职位信息 ORM 模型，对应数据库表 ``jobs``。
-
-    存储从各招聘渠道采集或模拟生成的职位数据，支持按城市、来源、薪资等维度检索。
+    职位信息数据模型
+    
+    Attributes:
+        id: 主键ID
+        title: 职位名称
+        company: 公司名称
+        salary_min: 最低薪资（单位：K/月）
+        salary_max: 最高薪资（单位：K/月）
+        city: 城市
+        experience: 经验要求
+        education: 学历要求
+        skills: 技能要求列表（JSON格式存储）
+        company_size: 公司规模
+        company_type: 公司类型
+        industry: 行业
+        description: 职位描述
+        url: 原始URL
+        source: 数据来源（boss/zhilian/qiancheng）
+        created_at: 创建时间
+        updated_at: 更新时间
     """
-
-    __tablename__ = "jobs"
-
+    __tablename__ = 'jobs'
+    
     # 主键
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-
-    # 职位基本信息
-    title: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-    company: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-
-    # 薪资范围（单位：K/月），可为空表示未披露
-    salary_min: Mapped[float | None] = mapped_column(Float, nullable=True)
-    salary_max: Mapped[float | None] = mapped_column(Float, nullable=True)
-
-    # 地理位置
-    city: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    district: Mapped[str | None] = mapped_column(String(50), nullable=True)
-
-    # 任职要求
-    experience: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    education: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    skills: Mapped[list | None] = mapped_column(JSON, nullable=True)
-
-    # 公司属性
-    company_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    company_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    industry: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-
-    # 职位详情与来源
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    source: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-
-    # 是否为模拟数据（用于演示或测试）
-    is_simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # 基本信息
+    title = Column(String(200), nullable=False, index=True, comment='职位名称')
+    company = Column(String(200), nullable=False, index=True, comment='公司名称')
+    
+    # 薪资信息（单位：K/月，便于统一计算）
+    salary_min = Column(Float, nullable=True, comment='最低薪资(K/月)')
+    salary_max = Column(Float, nullable=True, comment='最高薪资(K/月)')
+    
+    # 基本要求
+    city = Column(String(50), nullable=False, index=True, comment='城市')
+    experience = Column(String(50), nullable=True, comment='经验要求')
+    education = Column(String(50), nullable=True, comment='学历要求')
+    
+    # 技能要求（JSON格式存储列表）
+    skills = Column(JSON, nullable=True, comment='技能要求列表')
+    
+    # 公司信息
+    company_size = Column(String(50), nullable=True, comment='公司规模')
+    company_type = Column(String(50), nullable=True, comment='公司类型')
+    industry = Column(String(100), nullable=True, index=True, comment='行业')
+    
+    # 职位详情
+    description = Column(Text, nullable=True, comment='职位描述')
+    url = Column(String(500), nullable=True, comment='原始URL')
+    
+    # 来源信息
+    source = Column(String(50), nullable=False, index=True, comment='数据来源')
+    
     # 时间戳
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.now,
-        nullable=False,
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now,
-        nullable=False,
-    )
-
-    # 复合索引：加速「城市 + 来源」与「薪资区间」类查询
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+    
+    # 索引
     __table_args__ = (
-        Index("idx_city_source", "city", "source"),
-        Index("idx_salary", "salary_min", "salary_max"),
+        Index('idx_city_source', 'city', 'source'),
+        Index('idx_industry_source', 'industry', 'source'),
+        Index('idx_salary_range', 'salary_min', 'salary_max'),
     )
-
-    def to_dict(self) -> dict[str, Any]:
-        """
-        将模型实例转换为普通字典，便于 JSON 序列化或 API 返回。
-
-        Returns:
-            包含全部字段的字典；``DateTime`` 字段转为 ISO 8601 字符串。
-        """
+    
+    def __repr__(self):
+        return f"<Job(id={self.id}, title='{self.title}', company='{self.company}', city='{self.city}')>"
+    
+    def to_dict(self):
+        """转换为字典格式"""
         return {
-            "id": self.id,
-            "title": self.title,
-            "company": self.company,
-            "salary_min": self.salary_min,
-            "salary_max": self.salary_max,
-            "city": self.city,
-            "district": self.district,
-            "experience": self.experience,
-            "education": self.education,
-            "skills": self.skills,
-            "company_size": self.company_size,
-            "company_type": self.company_type,
-            "industry": self.industry,
-            "description": self.description,
-            "url": self.url,
-            "source": self.source,
-            "is_simulated": self.is_simulated,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            'id': self.id,
+            'title': self.title,
+            'company': self.company,
+            'salary_min': self.salary_min,
+            'salary_max': self.salary_max,
+            'city': self.city,
+            'experience': self.experience,
+            'education': self.education,
+            'skills': self.skills,
+            'company_size': self.company_size,
+            'company_type': self.company_type,
+            'industry': self.industry,
+            'description': self.description,
+            'url': self.url,
+            'source': self.source,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
-
-    def __repr__(self) -> str:
-        return (
-            f"<Job(id={self.id!r}, title={self.title!r}, "
-            f"company={self.company!r}, city={self.city!r})>"
-        )
+    
+    @property
+    def salary_range(self):
+        """薪资范围字符串"""
+        if self.salary_min and self.salary_max:
+            return f"{self.salary_min:.1f}K-{self.salary_max:.1f}K"
+        return "薪资面议"
+    
+    @property
+    def avg_salary(self):
+        """平均薪资"""
+        if self.salary_min and self.salary_max:
+            return (self.salary_min + self.salary_max) / 2
+        return None
