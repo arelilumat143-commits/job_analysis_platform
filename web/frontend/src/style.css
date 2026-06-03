@@ -1,15 +1,62 @@
-/* ===========================================================
-   莫兰迪设计系统 — 全局样式（和 app.py 完全一致）
-   =========================================================== */
+/* ============================================================
+   莫兰迪设计系统 — 全局样式 + CSS 变量
+   所有组件通过 var(--xxx) 引用这些变量，统一换肤只需改这里
+   ============================================================ */
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* ---- CSS 自定义属性（设计 Token）---- */
+:root {
+  /* 主色调 */
+  --primary:       #5B8DEF;
+  --primary-light: #8BABF0;
+  --primary-soft:  #EEF2FB;
 
-body {
-  font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
-  background: #FAFAFA;
-  color: #2C2C2C;
+  /* 辅助色 */
+  --green:         #7EB8A0;
+  --green-soft:    #EEF5F1;
+  --red:           #C48B8B;
+  --red-soft:      #FBF3F3;
+  --orange:        #C9A87C;
+  --purple:        #9B8EC4;
+
+  /* 背景 */
+  --bg-page:       #FAFAFA;
+  --bg-card:       #FFFFFF;
+  --bg-sidebar:    #F5F6F8;
+
+  /* 文字 */
+  --text-1:        #2C2C2C;
+  --text-2:        #6B6B6B;
+  --text-3:        #A0A0A0;
+
+  /* 边框 & 阴影 */
+  --border:        #F0F0F0;
+  --shadow:        0 1px 3px rgba(0,0,0,0.04);
+  --shadow-hover:  0 4px 12px rgba(0,0,0,0.08);
+
+  /* 圆角 */
+  --radius:        16px;
+  --radius-sm:     10px;
 }
 
+/* ---- 全局重置 ---- */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ---- 基础排版 ---- */
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  background: var(--bg-page);
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- 根容器：侧边栏 + 主内容横向排列 ---- */
 #app {
   display: flex;
   min-height: 100vh;
