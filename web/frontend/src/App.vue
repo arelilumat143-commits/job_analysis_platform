@@ -67,6 +67,67 @@ const salaryBins      = ['0-5','5-10','10-15','15-20','20-25','25-30','30-35','3
 const salaryBinValues = [2, 5, 8, 12, 7, 4, 1, 1, 0]
 
 // ============================================================
+// 职位搜索 — 筛选状态 + 模拟数据
+// ============================================================
+const searchKeyword  = ref('')       // 搜索关键词
+const searchCity     = ref('')       // 城市筛选（空=全部）
+const searchExp      = ref('')       // 经验要求筛选
+const searchSalaryMin = ref(0)       // 最低薪资筛选
+
+// 模拟职位库（30 条，后续接 API 替换）
+const allJobs = Array.from({ length: 30 }, (_, i) => {
+  const cities     = ['北京','成都','上海','深圳','杭州','武汉','广州','南京','西安','郑州']
+  const titles     = ['Python开发工程师','Java后端开发','前端工程师','数据分析师','算法工程师','运维开发','测试工程师','产品经理','UI设计师','全栈工程师']
+  const companies  = ['字节跳动','阿里巴巴','腾讯','华为','美团','京东','百度','网易','小米','滴滴']
+  const exps       = ['应届生','1-3年','3-5年','5-10年','不限']
+  const city       = cities[i % cities.length]
+  const minSalary  = [5,8,10,12,15,18,20,25,30,35][i % 10]
+  const maxSalary  = minSalary + [5,8,10,12,15,18,20,20,25,25][i % 10]
+  return {
+    id: i + 1,
+    title: titles[i % titles.length],
+    company: companies[i % companies.length],
+    city,
+    salary_min: minSalary,
+    salary_max: maxSalary,
+    experience: exps[i % exps.length],
+    skills: ['Python','SQL','Linux','Docker','AWS'].slice(0, 2 + (i % 4)),
+  }
+})
+
+// 计算筛选后的结果（computed 不是必须导入，这里用函数每次渲染时计算）
+function getFilteredJobs() {
+  let list = allJobs
+  const kw = searchKeyword.value.toLowerCase()
+  if (kw) {
+    list = list.filter(j =>
+      j.title.toLowerCase().includes(kw) ||
+      j.company.toLowerCase().includes(kw) ||
+      j.skills.some(s => s.toLowerCase().includes(kw))
+    )
+  }
+  if (searchCity.value) {
+    list = list.filter(j => j.city === searchCity.value)
+  }
+  if (searchExp.value) {
+    list = list.filter(j => j.experience === searchExp.value)
+  }
+  if (searchSalaryMin.value > 0) {
+    list = list.filter(j => j.salary_min >= searchSalaryMin.value)
+  }
+  return list
+}
+
+// 根据筛选结果重新计算时自动获取
+function filteredJobs() {
+  return getFilteredJobs()
+}
+
+// 城市列表（从模拟数据去重，后续接 API）
+const allCities = [...new Set(allJobs.map(j => j.city))]
+const expOptions = ['不限','应届生','1-3年','3-5年','5-10年']
+
+// ============================================================
 // 图表绘制函数（每个函数只管自己的图表）
 // ============================================================
 function drawCityChart() {
@@ -244,6 +305,11 @@ watch(currentPage, (page) => {
       :class="{ active: currentPage === 'ai' }"
       @click="currentPage = 'ai'"
     >▽  AI智能报告</div>
+    <div
+      class="nav-item"
+      :class="{ active: currentPage === 'search' }"
+      @click="currentPage = 'search'"
+    >🔍  职位搜索</div>
 
     <div class="nav-spacer"></div>
 
@@ -399,6 +465,94 @@ watch(currentPage, (page) => {
       </div>
     </template>
 
+<!-- ============================================================
+         职位搜索
+    ============================================================ -->
+    <template v-if="currentPage === 'search'">
+      <div class="hero">
+        <div class="hero-title">职位搜索</div>
+        <div class="hero-sub">搜索筛选 22,588 条真实职位数据，支持多维度精准过滤</div>
+      </div>
+
+      <!-- 搜索筛选栏 -->
+      <div class="search-bar">
+        <!-- 关键词输入框 -->
+        <div class="search-input-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            v-model="searchKeyword"
+            type="text"
+            class="search-input"
+            placeholder="搜索职位、公司、技能..."
+          />
+        </div>
+
+        <!-- 城市下拉 -->
+        <select v-model="searchCity" class="search-select">
+          <option value="">全部城市</option>
+          <option v-for="c in allCities" :key="c" :value="c">{{ c }}</option>
+        </select>
+
+        <!-- 经验下拉 -->
+        <select v-model="searchExp" class="search-select">
+          <option value="">全部经验</option>
+          <option v-for="e in expOptions" :key="e" :value="e">{{ e }}</option>
+        </select>
+
+        <!-- 最低薪资输入 -->
+        <div class="salary-filter">
+          <span class="salary-label">最低薪资</span>
+          <input
+            v-model.number="searchSalaryMin"
+            type="number"
+            class="search-salary"
+            placeholder="0K"
+            min="0"
+            step="1"
+          />
+          <span class="salary-unit">K</span>
+        </div>
+
+        <!-- 结果计数 -->
+        <span class="search-count">{{ filteredJobs().length }} 条结果</span>
+      </div>
+
+      <!-- 筛选结果表格 -->
+      <div class="chart-row chart-span">
+        <ChartCard :title="'职位列表（共 ' + filteredJobs().length + ' 条）'">
+          <div v-if="filteredJobs().length === 0" class="empty-state">
+            没有匹配的职位，请调整筛选条件
+          </div>
+          <div v-else class="job-table-wrap">
+            <table class="job-table">
+              <thead>
+                <tr>
+                  <th>职位名称</th>
+                  <th>公司</th>
+                  <th>城市</th>
+                  <th>月薪范围</th>
+                  <th>经验要求</th>
+                  <th>技能标签</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="job in filteredJobs()" :key="job.id" class="job-row">
+                  <td class="job-title">{{ job.title }}</td>
+                  <td class="job-company">{{ job.company }}</td>
+                  <td><span class="tag-city">{{ job.city }}</span></td>
+                  <td class="job-salary">{{ job.salary_min }}K - {{ job.salary_max }}K</td>
+                  <td class="job-exp">{{ job.experience }}</td>
+                  <td>
+                    <span v-for="sk in job.skills" :key="sk" class="tag-skill">{{ sk }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </ChartCard>
+      </div>
+    </template>
+
   </main>
 </template>
 
@@ -514,7 +668,132 @@ watch(currentPage, (page) => {
   color: #FFF; font-size: 14px; cursor: pointer;
 }
 
+/* ========== 搜索页面 ========== */
+.search-bar {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 24px; flex-wrap: wrap;
+}
+
+/* 搜索输入框 */
+.search-input-wrap {
+  position: relative; flex: 1; min-width: 200px;
+}
+.search-icon {
+  position: absolute; left: 12px; top: 50%;
+  transform: translateY(-50%); font-size: 14px;
+}
+.search-input {
+  width: 100%; padding: 10px 14px 10px 36px;
+  border: 1px solid var(--border, #F0F0F0);
+  border-radius: var(--radius-sm, 12px);
+  background: var(--bg-card, #FFFFFF);
+  font-size: 14px; color: var(--text-1, #2C2C2C);
+  outline: none; transition: border-color 0.2s;
+}
+.search-input:focus {
+  border-color: var(--primary, #5B8DEF);
+}
+.search-input::placeholder { color: var(--text-3, #A0A0A0); }
+
+/* 下拉框 */
+.search-select {
+  padding: 10px 12px;
+  border: 1px solid var(--border, #F0F0F0);
+  border-radius: var(--radius-sm, 12px);
+  background: var(--bg-card, #FFFFFF);
+  font-size: 14px; color: var(--text-1, #2C2C2C);
+  outline: none; cursor: pointer;
+  min-width: 110px;
+}
+
+/* 薪资筛选 */
+.salary-filter {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border, #F0F0F0);
+  border-radius: var(--radius-sm, 12px);
+  background: var(--bg-card, #FFFFFF);
+}
+.salary-label { font-size: 12px; color: var(--text-3, #A0A0A0); white-space: nowrap; }
+.salary-unit  { font-size: 13px; color: var(--text-2, #6B6B6B); }
+.search-salary {
+  width: 50px; border: none; outline: none;
+  font-size: 14px; color: var(--text-1, #2C2C2C);
+  background: transparent; text-align: right;
+}
+
+/* 结果计数 */
+.search-count {
+  font-size: 13px; color: var(--text-3, #A0A0A0);
+  white-space: nowrap; margin-left: auto;
+}
+
+/* 职位表格 */
+.job-table-wrap {
+  width: 100%; overflow-x: auto;
+}
+.job-table {
+  width: 100%; border-collapse: collapse; font-size: 14px;
+}
+.job-table thead {
+  border-bottom: 2px solid var(--border, #F0F0F0);
+}
+.job-table th {
+  text-align: left; padding: 12px 8px;
+  font-size: 12px; font-weight: 500;
+  color: var(--text-3, #A0A0A0);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.job-table td {
+  padding: 14px 8px;
+  border-bottom: 1px solid var(--border, #F0F0F0);
+  color: var(--text-1, #2C2C2C);
+}
+
+.job-row { transition: background 0.15s; }
+.job-row:hover { background: var(--primary-soft, #EEF2FB); }
+
+.job-title   { font-weight: 500; }
+.job-company { color: var(--text-2, #6B6B6B); }
+.job-salary  { font-weight: 500; color: var(--primary, #5B8DEF); white-space: nowrap; }
+.job-exp     { color: var(--text-2, #6B6B6B); white-space: nowrap; }
+
+/* 标签 */
+.tag-city  {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 6px; font-size: 12px;
+  background: var(--primary-soft, #EEF2FB);
+  color: var(--primary, #5B8DEF);
+}
+.tag-skill {
+  display: inline-block; padding: 2px 8px; margin: 1px 4px 1px 0;
+  border-radius: 6px; font-size: 12px;
+  background: var(--green-soft, #EEF5F1);
+  color: var(--green, #7EB8A0);
+}
+
 /* ========== 响应式（768px 以下） ========== */
+@media (max-width: 768px) {
+  /* 侧边栏变顶部导航 */
+  .sidebar {
+    width: 100%; min-width: unset; height: auto;
+    position: static; flex-direction: row; flex-wrap: wrap;
+    padding: 12px; gap: 8px; align-items: center;
+  }
+  .brand { padding: 0; margin: 0; }
+  .db-badge, .nav-label, .nav-spacer, .sys-info, .btn-refresh, .version { display: none; }
+  .nav-item { font-size: 12px; padding: 6px 10px; margin: 0; }
+
+  /* 主内容缩进 */
+  .main { padding: 1rem; }
+
+  /* 搜索栏纵向排列 */
+  .search-bar { flex-direction: column; align-items: stretch; }
+  .search-input-wrap { min-width: unset; }
+  .search-select { min-width: unset; }
+  .search-count { margin-left: 0; text-align: center; }
+}
 @media (max-width: 768px) {
   /* 侧边栏变顶部导航 */
   .sidebar {
