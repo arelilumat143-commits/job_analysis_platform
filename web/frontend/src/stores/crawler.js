@@ -56,6 +56,7 @@ export const useCrawlerStore = defineStore('crawler', () => {
         source: crawlForm.value.source,
         city: crawlForm.value.city || null,
         keyword: crawlForm.value.keyword || null,
+        max_pages: crawlForm.value.pages || 1,
       })
       if (res) {
         crawlTaskId.value = res.task_id

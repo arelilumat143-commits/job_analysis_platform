@@ -20,14 +20,14 @@ crawler_service = CrawlerService()
 crawler_tasks: Dict[str, Dict[str, Any]] = {}
 
 
-def run_crawler_task(task_id: str, source: str, city: Optional[str], keyword: Optional[str]):
+def run_crawler_task(task_id: str, source: str, city: Optional[str], keyword: Optional[str], max_pages: int):
     """后台运行爬虫任务"""
     try:
         crawler_tasks[task_id]["status"] = "running"
         crawler_tasks[task_id]["message"] = "爬虫运行中..."
 
         # 执行爬虫
-        result = crawler_service.run_crawler(source=source, city=city, keyword=keyword)
+        result = crawler_service.run_crawler(source=source, city=city, keyword=keyword, max_pages=max_pages)
 
         # 根据 success 字段判断实际结果
         if result.get("success"):
@@ -64,6 +64,7 @@ async def start_crawler(
         "source": request.source,
         "city": request.city,
         "keyword": request.keyword,
+        "max_pages": request.max_pages,
         "status": "pending",
         "message": "任务已创建，等待执行",
         "total_collected": 0,
@@ -71,7 +72,7 @@ async def start_crawler(
     }
     
     # 后台执行爬虫
-    background_tasks.add_task(run_crawler_task, task_id, request.source, request.city, request.keyword)
+    background_tasks.add_task(run_crawler_task, task_id, request.source, request.city, request.keyword, request.max_pages)
     
     return BaseResponse(
         code=200,

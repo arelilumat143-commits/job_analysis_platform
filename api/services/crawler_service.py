@@ -66,16 +66,18 @@ class CrawlerService:
         self,
         source: str,
         city: Optional[str] = None,
-        keyword: Optional[str] = None
+        keyword: Optional[str] = None,
+        max_pages: int = 1,
     ) -> Dict[str, Any]:
         """
         运行爬虫任务
-        
+
         Args:
             source: 数据源代码
             city: 城市（可选）
             keyword: 关键词（可选）
-            
+            max_pages: 最大爬取页数（每页约20条，默认1页）
+
         Returns:
             爬虫执行结果
         """
@@ -98,7 +100,7 @@ class CrawlerService:
                 crawler = ZhilianCrawler(
                     keyword=keyword or "Python",
                     city=city or "北京",
-                    max_pages=1,  # 默认爬1页，避免等待过久
+                    max_pages=max_pages,
                     headless=True,
                     fetch_detail=False,
                 )

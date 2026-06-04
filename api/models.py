@@ -118,6 +118,7 @@ class CrawlerStartRequest(BaseModel):
     source: str = Field(description="数据源(boss/zhilian/qiancheng/shixiseng)")
     city: Optional[str] = Field(None, description="城市")
     keyword: Optional[str] = Field(None, description="关键词")
+    max_pages: int = Field(default=1, ge=1, le=50, description="最大爬取页数（每页约20条）")
 
 
 class CrawlerStartResponse(BaseModel):

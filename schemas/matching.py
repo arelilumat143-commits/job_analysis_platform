@@ -1,5 +1,6 @@
 # ============================================================================
-# 岗位匹配 Schema — 请求/响应数据结构
+# 岗位匹配 Schema — 请求/响应数据结构（v2 双引擎版）
+# 新增：keyword_analysis、mode、tfidf_score、sbert_score
 # ============================================================================
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -51,7 +52,25 @@ class MatchedJob(BaseModel):
     salary_max: Optional[float] = Field(None, description="最高薪资（K/月）")
     required_skills: List[str] = Field(default_factory=list, description="岗位要求技能")
     score: float = Field(description="综合匹配分数 0-100")
+    tfidf_score: Optional[float] = Field(None, description="TF-IDF 精确匹配分数 0-100")
+    sbert_score: Optional[float] = Field(None, description="SBERT 语义匹配分数 0-100")
     reasons: MatchReason = Field(description="匹配理由详情")
+
+
+class KeywordAnalysis(BaseModel):
+    """关键词分析结果（参考 resume-scanner-api）"""
+    critical_keywords: List[str] = Field(
+        default_factory=list, description="用户关键技能列表"
+    )
+    available_keywords: List[str] = Field(
+        default_factory=list, description="全库高频技能（Top 20）"
+    )
+    missing_keywords: List[str] = Field(
+        default_factory=list, description="用户缺失的高频技能"
+    )
+    total_unique_skills: int = Field(
+        default=0, description="全库不重复技能总数"
+    )
 
 
 class JobMatchingResponse(BaseModel):
@@ -60,3 +79,9 @@ class JobMatchingResponse(BaseModel):
     matched_count: int = Field(description="匹配到的岗位数量")
     top_matches: List[MatchedJob] = Field(description="Top N 匹配岗位")
     user_skills: List[str] = Field(description="用户输入的技能（标准化后）")
+    mode: str = Field(
+        default="tfidf_only", description="匹配模式: dual_engine 或 tfidf_only"
+    )
+    keyword_analysis: Optional[KeywordAnalysis] = Field(
+        None, description="关键词分析结果"
+    )
