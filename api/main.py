@@ -22,7 +22,10 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 # 导入路由
-from api.routes import jobs_router, analysis_router, ai_router, crawler_router
+from api.routes import (
+    jobs_router, analysis_router, ai_router, crawler_router,
+    prediction_router, matching_router,
+)
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -91,6 +94,8 @@ app.include_router(jobs_router, prefix="/api")
 app.include_router(analysis_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
 app.include_router(crawler_router, prefix="/api")
+app.include_router(prediction_router, prefix="/api")
+app.include_router(matching_router, prefix="/api")
 
 
 # 健康检查接口
