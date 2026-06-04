@@ -21,14 +21,8 @@ class CrawlerService:
     提供爬虫任务管理和数据采集功能
     """
     
-    # 可用的数据源配置
+    # 可用的数据源配置（仅智联已实现，其余待开发）
     AVAILABLE_SOURCES = [
-        {
-            "name": "BOSS直聘",
-            "code": "boss",
-            "enabled": True,
-            "description": "BOSS直聘平台，提供互联网岗位为主"
-        },
         {
             "name": "智联招聘",
             "code": "zhilian",
@@ -36,16 +30,22 @@ class CrawlerService:
             "description": "智联招聘平台，职位覆盖面广"
         },
         {
+            "name": "BOSS直聘",
+            "code": "boss",
+            "enabled": False,
+            "description": "BOSS直聘平台（爬虫待开发）"
+        },
+        {
             "name": "前程无忧",
             "code": "qiancheng",
-            "enabled": True,
-            "description": "前程无忧51Job平台"
+            "enabled": False,
+            "description": "前程无忧51Job平台（爬虫待开发）"
         },
         {
             "name": "实习僧",
             "code": "shixiseng",
-            "enabled": True,
-            "description": "实习僧平台，专注实习岗位"
+            "enabled": False,
+            "description": "实习僧平台（爬虫待开发）"
         }
     ]
     
@@ -90,63 +90,48 @@ class CrawlerService:
         
         # 动态导入爬虫模块
         try:
-            if source == "boss":
-                from crawler.boss_crawler_v2 import BossCrawler
-                crawler = BossCrawler()
-            elif source == "zhilian":
-                from crawler.zhilian_crawler_v2 import ZhilianCrawler
-                crawler = ZhilianCrawler()
-            elif source == "qiancheng":
-                from crawler.qiancheng_crawler import QianChengCrawler
-                crawler = QianChengCrawler()
-            elif source == "shixiseng":
-                from crawler.shixiseng_crawler_v2 import ShiXiSengCrawler
-                crawler = ShiXiSengCrawler()
+            if source == "zhilian":
+                # 使用真实的智联爬虫模块
+                from crawler.zhilian_crawler import ZhilianCrawler
+                # ZhilianCrawler 内部已通过 db_manager.add_job 直接入库
+                # run() 返回 stats 字典，包含 added/skipped/failed 等
+                crawler = ZhilianCrawler(
+                    keyword=keyword or "Python",
+                    city=city or "北京",
+                    max_pages=1,  # 默认爬1页，避免等待过久
+                    headless=True,
+                    fetch_detail=False,
+                )
+                stats = crawler.run()
+                return {
+                    "success": True,
+                    "message": (
+                        f"爬取完成 | 找到 {stats.get('jobs_found', 0)} 条 "
+                        f"| 新增 {stats.get('added', 0)} 条 "
+                        f"| 跳过 {stats.get('skipped', 0)} 条 "
+                        f"| 失败 {stats.get('failed', 0)} 条"
+                    ),
+                    "added_count": stats.get("added", 0),
+                    "collected_count": stats.get("jobs_found", 0),
+                    "skipped_count": stats.get("skipped", 0),
+                    "failed_count": stats.get("failed", 0),
+                }
             else:
                 return {
                     "success": False,
-                    "message": f"未实现的爬虫: {source}",
+                    "message": f"爬虫未实现: {source}（当前仅支持智联招聘）",
                     "added_count": 0
                 }
         except ImportError as e:
             return {
                 "success": False,
-                "message": f"爬虫模块导入失败: {str(e)}",
+                "message": f"爬虫模块导入失败: {str(e)}（请检查 crawler/ 目录）",
                 "added_count": 0
             }
-        
-        try:
-            # 执行爬虫
-            # 注意：实际爬虫调用可能需要不同的参数
-            jobs_data = []
-            
-            # 简化处理：如果爬虫支持批量采集
-            if hasattr(crawler, 'collect_jobs'):
-                jobs_data = crawler.collect_jobs(city=city, keyword=keyword)
-            elif hasattr(crawler, 'run'):
-                jobs_data = crawler.run(city=city, keyword=keyword)
-            
-            # 存储数据
-            if jobs_data:
-                added_count = self.db.add_jobs_batch(jobs_data)
-                return {
-                    "success": True,
-                    "message": f"成功采集 {len(jobs_data)} 条数据，新增 {added_count} 条",
-                    "collected_count": len(jobs_data),
-                    "added_count": added_count
-                }
-            else:
-                return {
-                    "success": True,
-                    "message": "未采集到新数据",
-                    "collected_count": 0,
-                    "added_count": 0
-                }
-                
         except Exception as e:
             return {
                 "success": False,
-                "message": f"爬虫执行失败: {str(e)}",
+                "message": f"爬虫执行异常: {type(e).__name__}: {str(e)}",
                 "added_count": 0
             }
     

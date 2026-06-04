@@ -25,17 +25,22 @@ def run_crawler_task(task_id: str, source: str, city: Optional[str], keyword: Op
     try:
         crawler_tasks[task_id]["status"] = "running"
         crawler_tasks[task_id]["message"] = "爬虫运行中..."
-        
+
         # 执行爬虫
         result = crawler_service.run_crawler(source=source, city=city, keyword=keyword)
-        
-        crawler_tasks[task_id]["status"] = "completed"
-        crawler_tasks[task_id]["message"] = f"爬取完成，新增 {result.get('added_count', 0)} 条数据"
+
+        # 根据 success 字段判断实际结果
+        if result.get("success"):
+            crawler_tasks[task_id]["status"] = "completed"
+            crawler_tasks[task_id]["message"] = f"爬取完成，新增 {result.get('added_count', 0)} 条数据"
+        else:
+            crawler_tasks[task_id]["status"] = "failed"
+            crawler_tasks[task_id]["message"] = result.get("message", "未知错误")
         crawler_tasks[task_id]["result"] = result
-        
+
     except Exception as e:
         crawler_tasks[task_id]["status"] = "failed"
-        crawler_tasks[task_id]["message"] = f"爬虫执行失败: {str(e)}"
+        crawler_tasks[task_id]["message"] = f"爬虫执行异常: {type(e).__name__}: {str(e)}"
 
 
 @router.post("/start", response_model=BaseResponse)
@@ -168,3 +173,98 @@ async def get_task_detail(task_id: str) -> BaseResponse:
         message="ok",
         data=crawler_tasks[task_id]
     )
+
+
+# ========== 详情页抓取 ==========
+
+detail_scrape_status = {
+    "running": False,
+    "stats": {"total": 0, "success": 0, "updated": 0, "failed": 0, "skipped": 0},
+    "city": None,
+    "limit": None,
+}
+
+
+def run_detail_scrape_background(city: str = None, limit: int = 100, concurrency: int = 3):
+    """后台运行详情页爬虫"""
+    import asyncio
+    from crawlers.detail_scraper import DetailScraper
+
+    async def _run():
+        detail_scrape_status["running"] = True
+        detail_scrape_status["stats"] = {"total": 0, "success": 0, "updated": 0, "failed": 0, "skipped": 0}
+        scraper = DetailScraper(concurrency=concurrency, delay_range=(1.0, 3.0))
+        # 设置进度回调
+        def on_progress(stats):
+            detail_scrape_status["stats"] = stats
+        scraper.progress_callback = on_progress
+        try:
+            result = await scraper.run(city=city, limit=limit, resume=True)
+            detail_scrape_status["stats"] = result
+        finally:
+            detail_scrape_status["running"] = False
+
+    asyncio.run(_run())
+
+
+@router.post("/detail-scrape", response_model=BaseResponse)
+async def start_detail_scrape(
+    city: str = None,
+    limit: int = 100,
+    concurrency: int = 3,
+    background_tasks: BackgroundTasks = None,
+) -> BaseResponse:
+    """
+    启动详情页爬虫
+
+    - city: 按城市筛选（可选）
+    - limit: 限制数量（默认100，设为0表示不限制）
+    - concurrency: 并发数（默认3）
+    """
+    if detail_scrape_status["running"]:
+        return BaseResponse(
+            code=400,
+            message="详情页爬虫已在运行中",
+            data=detail_scrape_status["stats"],
+        )
+
+    detail_scrape_status["city"] = city
+    detail_scrape_status["limit"] = limit if limit > 0 else None
+
+    background_tasks.add_task(
+        run_detail_scrape_background,
+        city=city,
+        limit=limit if limit > 0 else 100,
+        concurrency=concurrency,
+    )
+
+    return BaseResponse(
+        code=200,
+        message=f"详情页爬虫已启动（城市:{city or '全部'}, 限制:{limit}条）",
+        data={"status": "started"},
+    )
+
+
+@router.get("/detail-scrape/status", response_model=BaseResponse)
+async def get_detail_scrape_status() -> BaseResponse:
+    """查询详情页爬虫状态"""
+    return BaseResponse(
+        code=200,
+        message="ok",
+        data={
+            "running": detail_scrape_status["running"],
+            "city": detail_scrape_status["city"],
+            "limit": detail_scrape_status["limit"],
+            "stats": detail_scrape_status["stats"],
+        },
+    )
+
+
+@router.post("/detail-scrape/stop", response_model=BaseResponse)
+async def stop_detail_scrape() -> BaseResponse:
+    """停止详情页爬虫"""
+    if not detail_scrape_status["running"]:
+        return BaseResponse(code=400, message="没有正在运行的详情页爬虫", data=None)
+    # 通过设置标志位来停止（scraper 内部检查）
+    detail_scrape_status["running"] = False
+    return BaseResponse(code=200, message="详情页爬虫停止信号已发送", data=None)

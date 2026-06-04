@@ -95,6 +95,22 @@ class DatabaseManager:
         finally:
             session.close()
     
+    # ── Job 模型有效列名缓存 ──
+    _valid_job_columns: Optional[set] = None
+
+    @classmethod
+    def _get_job_columns(cls) -> set:
+        """获取 Job 表的有效列名（惰性缓存）"""
+        if cls._valid_job_columns is None:
+            cls._valid_job_columns = set(Job.__table__.columns.keys())
+        return cls._valid_job_columns
+
+    @staticmethod
+    def _filter_job_data(job_data: Dict[str, Any]) -> Dict[str, Any]:
+        """过滤掉 Job 表中不存在的字段，避免入库报错"""
+        valid_cols = DatabaseManager._get_job_columns()
+        return {k: v for k, v in job_data.items() if k in valid_cols}
+
     def add_job(self, job_data: Dict[str, Any]) -> Optional[Job]:
         """
         添加单条职位数据
@@ -113,7 +129,9 @@ class DatabaseManager:
                     logger.debug(f"职位已存在，跳过: {job_data.get('title')}")
                     return None
             
-            job = Job(**job_data)
+            # 过滤未知字段（如 API 返回的 district 等表中没有的列）
+            filtered_data = self._filter_job_data(job_data)
+            job = Job(**filtered_data)
             session.add(job)
             session.flush()
             job_id = job.id
@@ -146,7 +164,7 @@ class DatabaseManager:
             for job_data in jobs_data:
                 if job_data.get('url') and job_data['url'] in existing_urls:
                     continue
-                new_jobs.append(Job(**job_data))
+                new_jobs.append(Job(**self._filter_job_data(job_data)))
                 existing_urls.add(job_data.get('url'))
             
             if new_jobs:

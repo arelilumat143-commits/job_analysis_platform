@@ -48,6 +48,7 @@ class Job(Base):
     
     # 基本要求
     city = Column(String(50), nullable=False, index=True, comment='城市')
+    district = Column(String(50), nullable=True, comment='区/县')  # 与MySQL schema同步
     experience = Column(String(50), nullable=True, comment='经验要求')
     education = Column(String(50), nullable=True, comment='学历要求')
     
@@ -65,6 +66,7 @@ class Job(Base):
     
     # 来源信息
     source = Column(String(50), nullable=False, index=True, comment='数据来源')
+    is_simulated = Column(Integer, nullable=False, default=0, comment='是否为模拟数据 0=真实 1=模拟')
     
     # 时间戳
     created_at = Column(DateTime, default=datetime.now, comment='创建时间')
@@ -89,6 +91,7 @@ class Job(Base):
             'salary_min': self.salary_min,
             'salary_max': self.salary_max,
             'city': self.city,
+            'district': self.district,
             'experience': self.experience,
             'education': self.education,
             'skills': self.skills,
@@ -98,6 +101,7 @@ class Job(Base):
             'description': self.description,
             'url': self.url,
             'source': self.source,
+            'is_simulated': self.is_simulated,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
