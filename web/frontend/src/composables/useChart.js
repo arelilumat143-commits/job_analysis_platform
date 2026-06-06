@@ -1,65 +1,82 @@
 // ============================================================
-// useChart — ECharts 图表生命周期管理（Composition API）
-// 替代重复的 echarts.init / setOption / resize / dispose 样板代码
+// useChart — ECharts 生命周期管理（支持多实例）
+// 用法：const { init, setOption } = useChart()
+//       const chart = init('chart-id')      // 创建/获取指定ID的实例
+//       setOption('chart-id', { ... })      // 设置配置
+// 组件卸载时自动清理所有实例
 // ============================================================
 import { onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 
 export function useChart() {
-  // 当前图表实例
-  let instance = null
-  // ResizeObserver 实例（自动监听容器尺寸变化）
-  let resizeObserver = null
+  // 多实例管理：Map<容器ID, { instance, observer }>
+  const instances = new Map()
 
-  // ---- 初始化图表 ----
+  // 初始化指定ID的图表（同一ID多次调用会先销毁旧实例）
   function init(container) {
-    // 支持传入元素 ID 字符串或 DOM 元素
+    const id = typeof container === 'string' ? container : container?.id
     const el = typeof container === 'string'
       ? document.getElementById(container)
       : container
 
     if (!el) {
-      console.warn('[useChart] 容器不存在:', container)
+      console.warn('[useChart] 容器不存在:', id)
       return null
     }
 
-    // 如果已有实例先销毁（避免重复 init）
-    if (instance) dispose()
+    // 如果该ID已有实例，先销毁旧实例
+    disposeOne(id)
 
-    instance = echarts.init(el)
+    const instance = echarts.init(el)
+    const observer = new ResizeObserver(() => instance?.resize())
+    observer.observe(el)
 
-    // 用 ResizeObserver 替代 window.resize（自动追踪、自动清理）
-    resizeObserver = new ResizeObserver(() => {
-      instance?.resize()
-    })
-    resizeObserver.observe(el)
-
+    instances.set(id, { instance, observer })
     return instance
   }
 
-  // ---- 设置/更新图表配置 ----
-  function setOption(option) {
-    if (!instance) return
-    // notMerge=true：每次全量替换，避免 v-if 切换后旧配置残留
-    instance.setOption(option, true)
+  // 获取指定ID的实例
+  function getInstance(id) {
+    return instances.get(id)?.instance || null
   }
 
-  // ---- 销毁图表 ----
-  function dispose() {
-    if (resizeObserver) {
-      resizeObserver.disconnect()
-      resizeObserver = null
+  // 设置指定ID图表的配置
+  function setOption(id, option) {
+    const entry = instances.get(id)
+    if (!entry) {
+      console.warn('[useChart] 实例不存在，请先 init:', id)
+      return
     }
-    if (instance) {
-      instance.dispose()
-      instance = null
+    entry.instance.setOption(option, true)
+  }
+
+  // 销毁单个实例
+  function disposeOne(id) {
+    const entry = instances.get(id)
+    if (entry) {
+      entry.observer?.disconnect()
+      entry.instance?.dispose()
+      instances.delete(id)
     }
   }
 
-  // ---- 组件卸载时自动清理 ----
-  onUnmounted(() => {
-    dispose()
-  })
+  // 销毁所有实例
+  function disposeAll() {
+    instances.forEach((entry) => {
+      entry.observer?.disconnect()
+      entry.instance?.dispose()
+    })
+    instances.clear()
+  }
 
-  return { init, setOption, dispose }
+  // 组件卸载时清理所有
+  onUnmounted(() => disposeAll())
+
+	/** 读取 CSS 变量值（支持暗色模式自动切换） */
+	function readCssVar(name) {
+	  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+	}
+
+	return { init, getInstance, setOption, disposeOne, disposeAll, readCssVar }
+
 }

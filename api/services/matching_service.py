@@ -360,6 +360,23 @@ class JobMatchingService:
 
             # 至少匹配上1个技能或城市强匹配才纳入结果
             if matched_skills or city_score >= 0.5:
+                # 分项得分明细（用于前端可解释性展示）
+                if sbert_used:
+                    breakdown = {
+                        "tfidf": round(float(tfidf_scores[i]) * 100 * tfidf_weight, 1),
+                        "sbert": round(float(sbert_scores[i]) * 100 * sbert_weight, 1),
+                        "skill": round(weighted_skill_score * 100 * skill_weight, 1),
+                        "city": round(city_score * 100 * city_weight, 1),
+                        "salary": round(salary_score * 100 * salary_weight, 1),
+                    }
+                else:
+                    breakdown = {
+                        "tfidf": round(float(tfidf_scores[i]) * 100 * 0.50, 1),
+                        "sbert": 0,
+                        "skill": round(weighted_skill_score * 100 * 0.30, 1),
+                        "city": round(city_score * 100 * 0.10, 1),
+                        "salary": round(salary_score * 100 * 0.10, 1),
+                    }
                 results.append({
                     "job": job_info,
                     "score": round(composite * 100, 1),
@@ -369,6 +386,7 @@ class JobMatchingService:
                     "skill_coverage": round(skill_coverage, 3),
                     "city_match": city_score >= 0.7,
                     "salary_match": salary_score >= 0.6,
+                    "score_breakdown": breakdown,
                 })
 
         # 按综合分降序排序
@@ -406,9 +424,12 @@ class JobMatchingService:
                 "salary_min": round(float(smin), 1) if smin is not None else None,
                 "salary_max": round(float(smax), 1) if smax is not None else None,
                 "required_skills": self._job_skills.get(job["id"], []),
+                "experience": str(job.get("experience", "") or ""),
+                "education": str(job.get("education", "") or ""),
                 "score": r["score"],
                 "tfidf_score": r["tfidf_score"],
                 "sbert_score": r["sbert_score"],
+                "score_breakdown": r["score_breakdown"],
                 "reasons": {
                     "skill_match": r["matched_skills"],
                     "skill_coverage": r["skill_coverage"],

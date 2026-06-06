@@ -62,6 +62,21 @@ app.add_middleware(
 )
 
 
+# ---- 启动事件：预加载 SBERT 模型 + 构建双引擎索引 ----
+@app.on_event("startup")
+async def startup_preload_models():
+    """服务启动时预加载 SBERT 模型，避免首次请求超时"""
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        from api.services.matching_service import job_matching_service
+        logger.info("正在预加载 SBERT 模型并构建双引擎索引...")
+        job_matching_service.reload_index()
+        logger.info("双引擎索引就绪")
+    except Exception as e:
+        logger.warning("预加载失败（首次匹配请求时将重试）: %s", e)
+
+
 # 异常处理
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):

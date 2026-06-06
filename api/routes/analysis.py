@@ -120,6 +120,28 @@ async def get_experience_analysis() -> BaseResponse:
     )
 
 
+@router.get("/market-insight", response_model=BaseResponse)
+async def get_market_insight() -> BaseResponse:
+    """
+    市场洞察（首页AI摘要数据）
+
+    返回：
+    - ai_summary: AI生成的市场摘要文本
+    - key_findings: 关键发现列表
+    - top_jobs: 热门职位排行
+    - top_cities: 热门城市排行（含薪资）
+    - salary_overview: 薪资概览
+    - market_health: 市场健康度评分
+    """
+    result = analysis_service.get_market_insight()
+
+    return BaseResponse(
+        code=200,
+        message="ok",
+        data=result
+    )
+
+
 @router.get("/education", response_model=BaseResponse)
 async def get_education_analysis() -> BaseResponse:
     """

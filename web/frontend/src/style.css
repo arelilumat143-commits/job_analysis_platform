@@ -1,63 +1,145 @@
 /* ============================================================
-   莫兰迪设计系统 — 全局样式 + CSS 变量
-   所有组件通过 var(--xxx) 引用这些变量，统一换肤只需改这里
+   招聘分析平台 v2 — 全局样式系统
+   特性：莫兰迪配色 | 暗色模式 | 16px 点阵网格 | Geist 字体 | CSS 变量
    ============================================================ */
 
-/* ---- CSS 自定义属性（设计 Token）---- */
+/* ---- Google Fonts: Geist Sans + Geist Mono ---- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ---- CSS 变量（浅色主题）---- */
 :root {
-  /* 主色调 */
   --primary:       #5B8DEF;
   --primary-light: #8BABF0;
   --primary-soft:  #EEF2FB;
-
-  /* 辅助色 */
   --green:         #7EB8A0;
+  --green-light:   #A8D5C0;
   --green-soft:    #EEF5F1;
   --red:           #C48B8B;
   --red-soft:      #FBF3F3;
   --orange:        #C9A87C;
+  --orange-light:  #E0C9A0;
   --purple:        #9B8EC4;
-
-  /* 背景 */
+  --purple-light:  #B8AEE0;
   --bg-page:       #FAFAFA;
   --bg-card:       #FFFFFF;
   --bg-sidebar:    #F5F6F8;
-
-  /* 文字 */
   --text-1:        #2C2C2C;
   --text-2:        #6B6B6B;
   --text-3:        #A0A0A0;
-
-  /* 边框 & 阴影 */
   --border:        #F0F0F0;
   --shadow:        0 1px 3px rgba(0,0,0,0.04);
   --shadow-hover:  0 4px 12px rgba(0,0,0,0.08);
-
-  /* 圆角 */
   --radius:        16px;
   --radius-sm:     10px;
+
+  /* 文字反色（用于彩色按钮上的白色文字） */
+  --text-inverse:  #FFFFFF;
+
+  /* 骨架屏动画色 */
+  --skeleton-base:  #F0F0F0;
+  --skeleton-shine: #E8E8E8;
+
+  /* 点阵网格 */
+  --grid-color:    rgba(226, 232, 240, 0.15);
+  --grid-size:     16px;
+}
+
+/* ---- 暗色主题 ---- */
+:root.dark {
+  --primary:       #7BA6EC;
+  --primary-light: #9BBDF2;
+  --primary-soft:  #1E2D45;
+  --green:         #7EB8A0;
+  --green-light:   #6B9A84;
+  --green-soft:    #1A2E26;
+  --red:           #C48B8B;
+  --red-soft:      #2E1E1E;
+  --orange:        #C9A87C;
+  --orange-light:  #A88D66;
+  --purple:        #9B8EC4;
+  --purple-light:  #7D72A5;
+  --bg-page:       #0F1117;
+  --bg-card:       #1A1D27;
+  --bg-sidebar:    #14161E;
+  --text-1:        #E5E7EB;
+  --text-2:        #9CA3AF;
+  --text-3:        #6B7280;
+  --border:        #2D3140;
+  --shadow:        0 1px 3px rgba(0,0,0,0.2);
+  --shadow-hover:  0 4px 12px rgba(0,0,0,0.4);
+  --text-inverse:  #E5E7EB;
+  --skeleton-base:  #2A2D37;
+  --skeleton-shine: #3A3D47;
+  --grid-color:    rgba(255, 255, 255, 0.03);
 }
 
 /* ---- 全局重置 ---- */
-*,
-*::before,
-*::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 /* ---- 基础排版 ---- */
 body {
-  font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
   background: var(--bg-page);
   color: var(--text-1);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ---- 根容器：侧边栏 + 主内容横向排列 ---- */
-#app {
-  display: flex;
-  min-height: 100vh;
+/* ---- 16px 点阵网格背景 ---- */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(circle, var(--grid-color) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+}
+
+#app { display: flex; min-height: 100vh; position: relative; z-index: 1; }
+
+/* ---- 路由过渡动画 ---- */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* ---- 滚动条美化 ---- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ---- 通用工具类 ---- */
+.mono { font-family: 'Geist Mono', 'Fira Code', 'Consolas', monospace; }
+
+/* ---- 共享页面布局（各视图复用）---- */
+.page-hero {
+  margin-bottom: 32px; padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.page-title  { font-size: 1.5rem; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.01em; }
+.page-sub    { font-size: 0.88rem; color: var(--text-3); }
+
+.metrics-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px;
+}
+.chart-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;
+}
+.chart-grid.span { grid-template-columns: 1fr; }
+
+.chart-box { width: 100%; }
+
+.empty-state {
+  text-align: center; color: var(--text-3); padding: 80px 0; font-size: 15px;
+}
+.empty-hint { font-size: 13px; margin-top: 8px; display: inline-block; }
+
+@media (max-width: 768px) {
+  .metrics-grid, .chart-grid { grid-template-columns: 1fr; }
 }

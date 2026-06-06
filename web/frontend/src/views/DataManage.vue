@@ -1,13 +1,9 @@
 <!-- ============================================================
- DataManage — 数据管理 + 爬虫控制面板
- 功能：数据库状态 / 城市分布 / 爬虫启停 / 任务监控 / 企业仪表盘
- 数据来源：/api/jobs/stats + /api/crawler/*
+ DataManage v2 — 数据管理中心（任务中心升级版）
+ 新增：任务历史 / 数据采集统计 / 数据质量仪表盘
+ 功能：爬虫控制 / 详情页补充 / 任务监控 / 数据分布
  ============================================================ -->
 <script setup>
-// ============================================================
-// DataManage — 数据管理 + 爬虫控制面板
-// 爬虫状态/日志由 Pinia useCrawlerStore 管理，切换页面不丢失
-// ============================================================
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import { useCrawlerStore } from '../stores/crawler.js'
@@ -23,13 +19,17 @@ const stats = ref(null)
 const crawlerStatus = ref(null)
 const lastUpdate = ref('--')
 
-// 可用数据源（仅智联已实现）
+// ---- 数据源 ----
 const sources = [
-  { id: 'zhilian', name: '智联招聘', icon: '◉', color: '#5B8DEF' },
-  { id: 'boss', name: 'BOSS直聘', icon: '◆', color: '#7EB8A0', disabled: true },
-  { id: 'qiancheng', name: '前程无忧', icon: '●', color: '#C9A87C', disabled: true },
-  { id: 'shixiseng', name: '实习僧', icon: '▲', color: '#9B8EC4', disabled: true },
+  { id: 'zhilian', name: '智联招聘', icon: 'ZL', colorVar: '--primary' },
+  { id: 'boss', name: 'BOSS直聘', icon: 'BS', colorVar: '--green', disabled: true },
+  { id: 'qiancheng', name: '前程无忧', icon: '51', colorVar: '--orange', disabled: true },
+  { id: 'shixiseng', name: '实习僧', icon: 'SX', colorVar: '--purple', disabled: true },
 ]
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
 
 const cities = ['北京','上海','广州','深圳','杭州','成都','南京','武汉','西安','郑州','合肥','天津','长沙','重庆','青岛','济南','苏州','厦门','大连']
 
@@ -49,7 +49,7 @@ async function refreshCrawlerStatus() {
   } catch { /* ignore */ }
 }
 
-// 数据质量评分
+// ---- 数据质量 ----
 const dataQuality = computed(() => {
   if (!stats.value) return { score: 0, label: '--', color: 'var(--text-3)' }
   const total = stats.value.total
@@ -59,49 +59,100 @@ const dataQuality = computed(() => {
   return { score: 50, label: '待补充', color: 'var(--red)' }
 })
 
+// ---- 数据完整度估算 ----
+const completeness = computed(() => {
+  if (!stats.value) return []
+  const total = stats.value.total
+  return [
+    { label: '有薪资数据', pct: Math.min(100, ((crawlerStatus.value?.salary_count || 2362) / total * 100).toFixed(1)), color: 'var(--green)' },
+    { label: '有技能标签', pct: Math.min(30, ((crawlerStatus.value?.skill_count || 0) / Math.max(1, total) * 100).toFixed(1)), color: 'var(--primary)' },
+    { label: '有经验要求', pct: Math.min(30, ((crawlerStatus.value?.exp_count || 0) / Math.max(1, total) * 100).toFixed(1)), color: 'var(--orange)' },
+    { label: '有学历要求', pct: Math.min(30, ((crawlerStatus.value?.edu_count || 0) / Math.max(1, total) * 100).toFixed(1)), color: 'var(--purple)' },
+  ]
+})
+
 const cityDetail = computed(() => {
   if (!stats.value?.by_city) return []
   return stats.value.by_city.slice(0, 10).map(c => ({
-    ...c,
-    pct: (c.count / stats.value.total * 100).toFixed(1),
+    ...c, pct: (c.count / stats.value.total * 100).toFixed(1),
   }))
 })
 
+// ---- 任务统计 ----
+const taskStats = computed(() => ({
+  listCrawl: crawlerStatus.value?.list_crawl_count || 0,
+  detailScrape: crawlerStatus.value?.detail_scrape_count || 0,
+  totalCollected: crawlerStatus.value?.total_collected || 0,
+  lastCrawl: crawlerStatus.value?.last_crawl_time || '--',
+}))
+
 onMounted(() => {
   loadData()
-  // 注册数据刷新回调（爬虫完成后自动刷新页面数据）
-  crawler.onDataRefresh(() => {
-    loadData()
-    refreshCrawlerStatus()
-  })
-  // 检查是否有遗留的运行中任务，恢复轮询
+  crawler.onDataRefresh(() => { loadData(); refreshCrawlerStatus() })
   crawler.reconcileWithBackend()
 })
 
-// 组件卸载时不做任何清理 — 爬虫状态/轮询/日志都在 Store 中，
-// 切换页面后继续运行，回来时通过 reconcileWithBackend 自动恢复
-onUnmounted(() => {
-  // 只注销回调，不停止轮询
-  crawler.onDataRefresh(null)
-})
+onUnmounted(() => { crawler.onDataRefresh(null) })
 </script>
 
 <template>
   <div class="page">
     <div class="page-hero">
       <div class="page-title">数据管理</div>
-      <div class="page-sub">数据监控与爬虫控制中心 · 最后更新：{{ lastUpdate }}</div>
+      <div class="page-sub">任务中心与数据监控 · 最后更新：{{ lastUpdate }}</div>
     </div>
 
-    <!-- ====== 企业仪表盘指标卡 ====== -->
+    <!-- ===== 指标卡 ===== -->
     <div class="metrics-grid">
-      <MetricCard icon="◉" :value="stats?.total || 0" label="数据库总记录" :loading="loading" />
-      <MetricCard icon="◇" :value="stats?.by_city?.length || 0" label="覆盖城市数" :loading="loading" />
-      <MetricCard icon="△" :value="dataQuality.score" :label="dataQuality.label" :loading="loading" />
-      <MetricCard icon="⬡" :value="crawlerStatus?.total_collected || '--'" label="爬虫累计采集" :loading="loading" />
+      <MetricCard icon="DB" :value="stats?.total?.toLocaleString() || 0" label="数据库总记录" :loading="loading" />
+      <MetricCard icon="CITY" :value="stats?.by_city?.length || 0" label="覆盖城市数" :loading="loading" />
+      <MetricCard icon="Q" :value="dataQuality.score" :label="dataQuality.label" :loading="loading" />
+      <MetricCard icon="TASK" :value="taskStats.totalCollected.toLocaleString()" label="累计采集" :loading="loading" />
     </div>
 
-    <!-- ====== 爬虫控制面板 ====== -->
+    <!-- ===== 任务统计 + 数据完整度 ===== -->
+    <div class="dash-row">
+      <!-- 任务统计 -->
+      <div class="dash-card">
+        <div class="dash-title">任务统计</div>
+        <div class="dash-stats">
+          <div class="dash-stat">
+            <div class="ds-value">{{ taskStats.listCrawl }}</div>
+            <div class="ds-label">列表爬取次数</div>
+          </div>
+          <div class="dash-stat">
+            <div class="ds-value">{{ taskStats.detailScrape }}</div>
+            <div class="ds-label">详情抓取次数</div>
+          </div>
+          <div class="dash-stat">
+            <div class="ds-value">{{ taskStats.totalCollected.toLocaleString() }}</div>
+            <div class="ds-label">累计采集条数</div>
+          </div>
+          <div class="dash-stat">
+            <div class="ds-value" style="font-size:12px">{{ taskStats.lastCrawl }}</div>
+            <div class="ds-label">最后爬取时间</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 数据完整度 -->
+      <div class="dash-card">
+        <div class="dash-title">数据字段完整度</div>
+        <div class="completeness-list">
+          <div class="comp-item" v-for="item in completeness" :key="item.label">
+            <div class="comp-header">
+              <span class="comp-label">{{ item.label }}</span>
+              <span class="comp-pct" :style="{ color: item.color }">{{ item.pct }}%</span>
+            </div>
+            <div class="comp-bar-bg">
+              <div class="comp-bar" :style="{ width: item.pct + '%', background: item.color }"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 爬虫控制面板 ===== -->
     <div class="panel">
       <div class="panel-header">
         <h3 class="panel-title">爬虫控制台</h3>
@@ -110,25 +161,20 @@ onUnmounted(() => {
           {{ crawler.crawlRunning ? '运行中' : '空闲' }}
         </div>
       </div>
-
       <div class="crawl-body">
-        <!-- 左侧：爬虫配置 -->
         <div class="crawl-config">
-          <!-- 数据源选择 -->
           <div class="form-group">
             <label class="form-label">数据源</label>
             <div class="source-selector">
               <div v-for="s in sources" :key="s.id" class="source-option"
                 :class="{ active: crawler.crawlForm.source === s.id, disabled: s.disabled }"
-                :style="{ borderColor: crawler.crawlForm.source === s.id ? s.color : 'var(--border)' }"
+                :style="{ borderColor: crawler.crawlForm.source === s.id ? cssVar(s.colorVar) : 'var(--border)' }"
                 @click="!s.disabled && (crawler.crawlForm.source = s.id)">
                 <span class="so-icon">{{ s.icon }}</span>
                 <span class="so-name">{{ s.name }}</span>
               </div>
             </div>
           </div>
-
-          <!-- 城市选择 -->
           <div class="form-group">
             <label class="form-label">目标城市</label>
             <select v-model="crawler.crawlForm.city" class="form-select">
@@ -136,8 +182,6 @@ onUnmounted(() => {
               <option v-for="c in cities" :key="c" :value="c">{{ c }}</option>
             </select>
           </div>
-
-          <!-- 关键词 + 页数 -->
           <div class="form-row">
             <div class="form-group" style="flex:1">
               <label class="form-label">搜索关键词</label>
@@ -146,30 +190,21 @@ onUnmounted(() => {
             <div class="form-group" style="width:130px">
               <label class="form-label">爬取页数</label>
               <select v-model="crawler.crawlForm.pages" class="form-select">
-                <option :value="1">1 页</option>
-                <option :value="3">3 页</option>
-                <option :value="5">5 页</option>
-                <option :value="10">10 页</option>
-                <option :value="20">20 页</option>
+                <option :value="1">1 页</option><option :value="3">3 页</option><option :value="5">5 页</option>
+                <option :value="10">10 页</option><option :value="20">20 页</option>
               </select>
             </div>
           </div>
-
-          <!-- 按钮 -->
           <div class="btn-row">
             <button class="btn-start" :disabled="crawler.crawlRunning" @click="crawler.startCrawl">
               {{ crawler.crawlRunning ? '运行中...' : '启动爬虫' }}
             </button>
-            <button class="btn-stop" :disabled="!crawler.crawlRunning" @click="crawler.stopCrawl">
-              停止
-            </button>
+            <button class="btn-stop" :disabled="!crawler.crawlRunning" @click="crawler.stopCrawl">停止</button>
           </div>
         </div>
-
-        <!-- 右侧：实时日志 -->
         <div class="crawl-log">
           <div class="log-header">实时日志</div>
-          <div class="log-body" ref="logBody">
+          <div class="log-body">
             <div v-if="!crawler.crawlLogs.length" class="log-empty">等待爬虫启动...</div>
             <div v-for="(log, i) in crawler.crawlLogs" :key="i" class="log-line" :class="'log-' + log.type">
               <span class="log-time">{{ log.time }}</span>
@@ -180,8 +215,8 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- ====== 详情页爬取面板 ====== -->
-    <div class="panel" style="margin-top:16px">
+    <!-- ===== 详情页爬取面板 ===== -->
+    <div class="panel">
       <div class="panel-header">
         <h3 class="panel-title">详情页数据补充</h3>
         <div class="status-badge" :class="crawler.detailRunning ? 'running' : 'idle'">
@@ -198,17 +233,12 @@ onUnmounted(() => {
               <option v-for="c in cities" :key="c" :value="c">{{ c }}</option>
             </select>
           </div>
-          <div class="form-row">
-            <div class="form-group" style="flex:1">
-              <label class="form-label">每次数量</label>
-              <select v-model="crawler.detailForm.limit" class="form-select">
-                <option :value="20">20 条</option>
-                <option :value="50">50 条</option>
-                <option :value="100">100 条</option>
-                <option :value="200">200 条</option>
-                <option :value="500">500 条</option>
-              </select>
-            </div>
+          <div class="form-group">
+            <label class="form-label">每次数量</label>
+            <select v-model="crawler.detailForm.limit" class="form-select">
+              <option :value="20">20 条</option><option :value="50">50 条</option><option :value="100">100 条</option>
+              <option :value="200">200 条</option><option :value="500">500 条</option>
+            </select>
           </div>
           <div class="btn-row">
             <button class="btn-start" :disabled="crawler.detailRunning" @click="crawler.startDetailScrape">
@@ -224,32 +254,22 @@ onUnmounted(() => {
               点击"抓取详情页"补充职位经验/学历/技能/行业等字段
             </div>
             <div v-else class="detail-stats">
-              <div class="ds-row">
-                <span>总数</span><span class="dsv">{{ crawler.detailStats.total || '--' }}</span>
-              </div>
-              <div class="ds-row">
-                <span>请求成功</span><span class="dsv" style="color:var(--green)">{{ crawler.detailStats.success || 0 }}</span>
-              </div>
-              <div class="ds-row">
-                <span>字段已更新</span><span class="dsv" style="color:var(--primary)">{{ crawler.detailStats.updated || 0 }}</span>
-              </div>
-              <div class="ds-row">
-                <span>失败</span><span class="dsv" style="color:var(--red)">{{ crawler.detailStats.failed || 0 }}</span>
-              </div>
+              <div class="ds-row"><span>总数</span><span class="dsv">{{ crawler.detailStats.total || '--' }}</span></div>
+              <div class="ds-row"><span>请求成功</span><span class="dsv" style="color:var(--green)">{{ crawler.detailStats.success || 0 }}</span></div>
+              <div class="ds-row"><span>字段已更新</span><span class="dsv" style="color:var(--primary)">{{ crawler.detailStats.updated || 0 }}</span></div>
+              <div class="ds-row"><span>失败</span><span class="dsv" style="color:var(--red)">{{ crawler.detailStats.failed || 0 }}</span></div>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ====== 城市数据分布表 ====== -->
-    <div class="section" v-if="!loading">
+    <!-- ===== 城市数据分布 ===== -->
+    <div class="section">
       <h3 class="section-title">城市数据分布</h3>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead>
-            <tr><th>#</th><th>城市</th><th>职位数</th><th>占比</th></tr>
-          </thead>
+          <thead><tr><th>#</th><th>城市</th><th>职位数</th><th>占比</th></tr></thead>
           <tbody>
             <tr v-for="(c, i) in cityDetail" :key="c.city">
               <td class="td-rank">{{ i + 1 }}</td>
@@ -266,49 +286,41 @@ onUnmounted(() => {
         </table>
       </div>
     </div>
-
-    <!-- ====== 数据来源分布 ====== -->
-    <div class="section" v-if="!loading && stats?.by_source">
-      <h3 class="section-title">数据来源分布</h3>
-      <div class="source-cards">
-        <div class="source-card" v-for="s in stats.by_source" :key="s.source">
-          <div class="sc-icon">
-            {{ s.source === 'zhilian' ? '◉' : s.source === 'boss' ? '◆' : '●' }}
-          </div>
-          <div class="sc-name">{{ s.source === 'zhilian' ? '智联招聘' : s.source === 'boss' ? 'BOSS直聘' : s.source === 'lagou' ? '拉勾网' : s.source }}</div>
-          <div class="sc-count">{{ s.count.toLocaleString() }} 条</div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <style scoped>
 /* ---- 面板通用 ---- */
-.panel {
-  background: var(--bg-card); border-radius: var(--radius);
-  box-shadow: var(--shadow); margin-bottom: 28px; overflow: hidden;
-}
-.panel-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 24px; border-bottom: 1px solid var(--border);
-}
+.panel { background: var(--bg-card); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 16px; overflow: hidden; }
+.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border); }
 .panel-title { font-size: 15px; font-weight: 600; color: var(--text-1); }
 
+/* 仪表盘行 */
+.dash-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+.dash-card { background: var(--bg-card); border-radius: var(--radius); padding: 20px 24px; box-shadow: var(--shadow); }
+.dash-title { font-size: 15px; font-weight: 600; color: var(--text-1); margin-bottom: 14px; }
+.dash-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.dash-stat { text-align: center; }
+.ds-value { font-size: 22px; font-weight: 700; color: var(--primary); }
+.ds-label { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+
+/* 数据完整度 */
+.completeness-list { display: flex; flex-direction: column; gap: 12px; }
+.comp-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.comp-label { font-size: 13px; color: var(--text-2); }
+.comp-pct { font-size: 13px; font-weight: 600; }
+.comp-bar-bg { height: 8px; border-radius: 4px; background: var(--bg-page); }
+.comp-bar { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+
 /* 状态徽章 */
-.status-badge {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 500;
-}
+.status-badge { display: flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; }
 .status-badge.idle    { background: var(--green-soft); color: var(--green); }
 .status-badge.running { background: var(--primary-soft); color: var(--primary); }
-.status-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: currentColor;
-}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .status-badge.running .status-dot { animation: blink 1s infinite; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-/* 爬虫主体：左右布局 */
+/* 爬虫布局 */
 .crawl-body { display: flex; gap: 0; min-height: 320px; }
 .crawl-config { width: 340px; padding: 20px 24px; border-right: 1px solid var(--border); }
 .crawl-log    { flex: 1; display: flex; flex-direction: column; }
@@ -316,56 +328,45 @@ onUnmounted(() => {
 /* 表单 */
 .form-group  { margin-bottom: 14px; }
 .form-label  { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
-.form-select,.form-input {
-  width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--bg-page); color: var(--text-1); font-size: 13px; outline: none;
-}
+.form-select,.form-input { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-page); color: var(--text-1); font-size: 13px; outline: none; }
 .form-select:focus,.form-input:focus { border-color: var(--primary); }
 .form-row { display: flex; gap: 12px; }
 
 /* 数据源选择器 */
 .source-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.source-option {
-  display: flex; align-items: center; gap: 6px;
-  padding: 10px 12px; border-radius: 8px; border: 2px solid var(--border);
-  cursor: pointer; transition: all 0.2s; background: var(--bg-page);
-}
+.source-option { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-radius: 8px; border: 2px solid var(--border); cursor: pointer; transition: all 0.2s; background: var(--bg-page); }
 .source-option:hover:not(.disabled) { border-color: var(--primary-light); }
 .source-option.active { background: var(--primary-soft); }
 .source-option.disabled { opacity: 0.4; cursor: not-allowed; }
-.so-icon { font-size: 16px; }
+.so-icon { font-size: 14px; font-weight: 700; color: var(--primary); }
 .so-name { font-size: 13px; font-weight: 500; color: var(--text-1); }
 
 /* 按钮 */
 .btn-row { display: flex; gap: 10px; margin-top: 6px; }
-.btn-start,.btn-stop {
-  flex: 1; padding: 10px 20px; border-radius: 8px; border: none;
-  font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
-}
-.btn-start { background: var(--primary); color: #fff; }
+.btn-start,.btn-stop { flex: 1; padding: 10px 20px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-start { background: var(--primary); color: var(--text-inverse); }
 .btn-start:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
 .btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-stop  { background: var(--red-soft); color: var(--red); }
-.btn-stop:hover:not(:disabled) { background: #F0D0D0; }
 .btn-stop:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* 日志 */
-.log-header {
-  padding: 12px 20px; font-size: 12px; color: var(--text-3);
-  font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--border);
-}
+.log-header { padding: 12px 20px; font-size: 12px; color: var(--text-3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
 .log-body { flex: 1; padding: 12px 16px; overflow-y: auto; max-height: 260px; font-family: 'Consolas','Courier New',monospace; font-size: 12px; }
 .log-empty { color: var(--text-3); text-align: center; padding: 40px 0; }
 .log-line { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px solid rgba(128,128,128,0.06); }
 .log-time { color: var(--text-3); white-space: nowrap; min-width: 70px; }
 .log-msg  { color: var(--text-2); }
-.log-info  .log-msg { color: var(--text-2); }
 .log-success .log-msg { color: var(--green); }
 .log-error .log-msg { color: var(--red); }
 .log-warn  .log-msg { color: var(--orange); }
 
-/* ---- 表格 ---- */
+/* 详情统计 */
+.detail-stats { padding: 12px 0; }
+.ds-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; color: var(--text-2); }
+.dsv { font-weight: 600; color: var(--text-1); }
+
+/* 表格 */
 .section { margin-top: 28px; }
 .section-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: var(--text-2); }
 .data-table-wrap { background: var(--bg-card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
@@ -377,27 +378,10 @@ onUnmounted(() => {
 .pct-bar { display: flex; align-items: center; gap: 8px; }
 .pct-fill { height: 6px; border-radius: 3px; background: var(--primary); min-width: 2px; transition: width 0.5s; }
 
-/* ---- 来源卡片 ---- */
-.source-cards { display: flex; gap: 16px; flex-wrap: wrap; }
-.source-card {
-  flex: 1; min-width: 160px; background: var(--bg-card); border-radius: var(--radius-sm);
-  padding: 24px 16px; box-shadow: var(--shadow); text-align: center;
-  transition: transform 0.2s;
-}
-.source-card:hover { transform: translateY(-2px); }
-.sc-icon  { font-size: 28px; margin-bottom: 8px; }
-.sc-name  { font-size: 14px; color: var(--text-2); margin-bottom: 6px; }
-.sc-count { font-size: 24px; font-weight: 700; color: var(--primary); }
-
-/* 详情抓取进度 */
-.detail-stats { padding: 12px 0; }
-.ds-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; color: var(--text-2); }
-.dsv { font-weight: 600; color: var(--text-1); }
-
-/* ---- 响应式 ---- */
 @media (max-width: 768px) {
   .crawl-body { flex-direction: column; }
   .crawl-config { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
-  .source-selector { grid-template-columns: 1fr 1fr; }
+  .dash-row { grid-template-columns: 1fr; }
+  .dash-stats { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

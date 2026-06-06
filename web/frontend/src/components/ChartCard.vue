@@ -41,7 +41,7 @@ defineProps({
 .chart-card {
   background: var(--bg-card, #FFFFFF);
   border-radius: var(--radius, 16px);
-  padding: 28px 32px;
+  padding: 24px 32px;
   box-shadow: var(--shadow, 0 1px 3px rgba(0,0,0,0.04));
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
@@ -73,7 +73,7 @@ defineProps({
 .sk-bar {
   height: 16px;
   border-radius: 6px;
-  background: linear-gradient(90deg, #F0F0F0 25%, #E8E8E8 50%, #F0F0F0 75%);
+  background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 50%, var(--skeleton-base) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }

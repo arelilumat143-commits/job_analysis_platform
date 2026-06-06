@@ -482,3 +482,146 @@ class AnalysisService:
                 educations.append(result)
         
         return {"educations": educations}
+
+    def get_market_insight(self) -> Dict[str, Any]:
+        """
+        市场洞察 — 首页 AI 摘要数据
+
+        从数据库计算关键市场指标，生成可读的市场洞察
+        """
+        import statistics
+
+        jobs = self.db.get_jobs(limit=20000, offset=0)
+        total = self.db.count_jobs()
+
+        if not jobs:
+            return {
+                "ai_summary": "数据收集中，请先运行爬虫采集职位数据。",
+                "key_findings": [],
+                "top_jobs": [],
+                "top_cities": [],
+                "salary_overview": {},
+                "market_health": {"score": 0, "label": "数据不足"},
+            }
+
+        # ── 基本统计 ──
+        cities_count = len(set(j.get("city") for j in jobs if j.get("city")))
+        sources = list(set(j.get("source") for j in jobs if j.get("source")))
+
+        # 薪资统计
+        salary_jobs = [j for j in jobs if j.get("salary_min") and j.get("salary_max")]
+        valid_salary = [j for j in salary_jobs if j["salary_min"] > 0 or j["salary_max"] > 0]
+        salaries_mid = [(j["salary_min"] + j["salary_max"]) / 2 for j in valid_salary]
+        avg_salary = round(statistics.mean(salaries_mid), 1) if salaries_mid else 0
+        median_salary = round(statistics.median(salaries_mid), 1) if salaries_mid else 0
+        high_salary_count = sum(1 for s in salaries_mid if s >= 30)
+        high_salary_pct = round(high_salary_count / len(salaries_mid) * 100, 1) if salaries_mid else 0
+
+        # ── 热门职位 TOP8 ──
+        title_counts = {}
+        for j in jobs:
+            t = j.get("title", "未知")
+            if t:
+                title_counts[t] = title_counts.get(t, 0) + 1
+        top_jobs = sorted(title_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+        top_jobs_list = [{"title": t, "count": c} for t, c in top_jobs]
+
+        # ── 热门城市 TOP8（含薪资）─
+        city_stats = {}
+        for j in jobs:
+            c = j.get("city", "未知")
+            if c not in city_stats:
+                city_stats[c] = {"count": 0, "salaries": []}
+            city_stats[c]["count"] += 1
+            if j.get("salary_min") and j.get("salary_max"):
+                city_stats[c]["salaries"].append((j["salary_min"] + j["salary_max"]) / 2)
+
+        top_cities_list = []
+        for city, stats in sorted(city_stats.items(), key=lambda x: x[1]["count"], reverse=True)[:8]:
+            avg_s = round(sum(stats["salaries"]) / len(stats["salaries"]), 1) if stats["salaries"] else 0
+            top_cities_list.append({"city": city, "count": stats["count"], "avg_salary": avg_s})
+
+        # ── 市场健康度评分 ──
+        health_score = 0
+        health_factors = []
+        if total > 10000:
+            health_score += 25
+            health_factors.append("数据样本充足")
+        else:
+            health_factors.append("数据量偏少")
+        if cities_count >= 10:
+            health_score += 20
+            health_factors.append(f"覆盖{cities_count}个城市")
+        else:
+            health_factors.append("城市覆盖不足")
+        if sources and len(sources) >= 2:
+            health_score += 15
+            health_factors.append("多数据源")
+        else:
+            health_factors.append("数据源单一")
+        if avg_salary > 10:
+            health_score += 15
+            health_factors.append("薪资水平正常")
+        if len(valid_salary) > 1000:
+            health_score += 25
+            health_factors.append("薪资样本充分")
+        else:
+            health_factors.append("薪资样本不足")
+
+        health_label = "优秀" if health_score >= 80 else "良好" if health_score >= 60 else "一般" if health_score >= 40 else "待改善"
+
+        # ── AI 摘要生成 ──
+        top_city_name = top_cities_list[0]["city"] if top_cities_list else "--"
+        top_job_name = top_jobs_list[0]["title"] if top_jobs_list else "--"
+        top_city_count = top_cities_list[0]["count"] if top_cities_list else 0
+        top_city_salary = top_cities_list[0]["avg_salary"] if top_cities_list else 0
+        second_city = top_cities_list[1] if len(top_cities_list) > 1 else None
+        third_city = top_cities_list[2] if len(top_cities_list) > 2 else None
+
+        ai_summary = (
+            f"当前平台共收录 {total:,} 条真实招聘数据，覆盖 {cities_count} 个城市。"
+            f"市场平均薪资约 {avg_salary}K/月，中位数 {median_salary}K/月。"
+            f"其中 {top_city_name} 职位最多（{top_city_count:,} 个），均薪 {top_city_salary}K/月。"
+        )
+        if second_city:
+            ai_summary += f" {second_city['city']}（{second_city['count']:,} 个，{second_city['avg_salary']}K）"
+            if third_city:
+                ai_summary += f"、{third_city['city']}（{third_city['count']:,} 个）"
+            ai_summary += "紧随其后。"
+        ai_summary += (
+            f" 最热门的岗位是「{top_job_name}」，"
+            f"高薪岗位（30K+）占比约 {high_salary_pct}%。"
+        )
+
+        # ── 关键发现 ──
+        key_findings = []
+        key_findings.append(f"📊 共收录 {total:,} 条职位，覆盖 {cities_count} 个城市")
+        key_findings.append(f"💰 市场平均薪资 {avg_salary}K/月，中位数 {median_salary}K/月")
+        key_findings.append(f"🔥 最热门岗位：「{top_job_name}」，共 {top_jobs_list[0]['count']:,} 个职位")
+        key_findings.append(f"🏙️ 职位最多城市：{top_city_name}（{top_city_count:,} 个，均薪 {top_city_salary}K）")
+        if high_salary_pct > 0:
+            key_findings.append(f"💎 高薪岗位（30K+）占比 {high_salary_pct}%，共 {high_salary_count:,} 个")
+        if len(sources) == 1:
+            key_findings.append(f"⚠️ 当前仅 {sources[0]} 单一数据源，建议扩展")
+        if total < 30000:
+            key_findings.append(f"📈 建议继续采集数据，目标 30,000+")
+
+        return {
+            "ai_summary": ai_summary,
+            "key_findings": key_findings,
+            "top_jobs": top_jobs_list,
+            "top_cities": top_cities_list,
+            "salary_overview": {
+                "avg_salary": avg_salary,
+                "median_salary": median_salary,
+                "high_salary_count": high_salary_count,
+                "high_salary_pct": high_salary_pct,
+                "with_salary_count": len(valid_salary),
+                "total": total,
+            },
+            "market_health": {
+                "score": health_score,
+                "label": health_label,
+                "factors": health_factors,
+            },
+        }
