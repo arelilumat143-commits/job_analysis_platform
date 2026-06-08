@@ -141,3 +141,27 @@ class DataSourceResponse(BaseModel):
     code: str = Field(description="数据源代码")
     enabled: bool = Field(description="是否启用")
     description: str = Field(description="描述")
+
+
+# ---- AI 对话 ----
+
+class AIChatMessage(BaseModel):
+    """AI 对话消息"""
+    role: str = Field(description="角色: user / assistant / system")
+    content: str = Field(description="消息内容")
+
+
+class AIChatRequest(BaseModel):
+    """AI 对话请求 — 支持运行时传入 API 配置"""
+    messages: List[AIChatMessage] = Field(
+        ..., description="对话历史", min_length=1
+    )
+    provider: str = Field(
+        default="siliconflow", description="AI 平台: siliconflow / deepseek / openai / gemini"
+    )
+    api_key: str = Field(description="API Key")
+    model: Optional[str] = Field(None, description="模型名（可选）")
+    base_url: Optional[str] = Field(None, description="API 地址（可选）")
+    include_context: bool = Field(
+        default=True, description="是否自动注入招聘市场数据作为上下文"
+    )

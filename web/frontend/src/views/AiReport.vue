@@ -4,13 +4,13 @@
  数据来源：/api/analysis/market-insight + /api/jobs/stats + /api/analysis/*
  ============================================================ -->
 <script setup>
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import { useApi } from '../composables/useApi.js'
 import { useChart } from '../composables/useChart.js'
 
 const store = useAppStore()
-const { get } = useApi()
+const { get, post } = useApi()
 const { init: initChart, setOption: setChart, readCssVar } = useChart()
 
 const loading = ref(true)
@@ -21,6 +21,55 @@ const skillData = ref(null)
 const industryData = ref(null)
 const experienceData = ref(null)
 const educationData = ref(null)
+
+// ---- AI 对话状态 ----
+const chatApiKey = ref(store.aiApiKey || '')
+const chatProvider = ref(store.aiProvider || 'siliconflow')
+const chatModel = ref('')
+const chatInput = ref('')
+const chatSending = ref(false)
+const chatMessages = ref([])
+const chatShowConfig = ref(false)
+const chatError = ref('')
+
+// 从 localStorage 恢复配置
+try {
+  const saved = localStorage.getItem('ai_chat_config')
+  if (saved) {
+    const cfg = JSON.parse(saved)
+    chatApiKey.value = cfg.apiKey || ''
+    chatProvider.value = cfg.provider || 'siliconflow'
+    chatModel.value = cfg.model || ''
+  }
+  // 恢复聊天记录
+  const savedMsgs = localStorage.getItem('ai_chat_messages')
+  if (savedMsgs) {
+    chatMessages.value = JSON.parse(savedMsgs)
+  }
+} catch (_) {}
+
+// 保存配置
+function saveChatConfig() {
+  store.aiApiKey = chatApiKey.value
+  store.aiProvider = chatProvider.value
+  localStorage.setItem('ai_chat_config', JSON.stringify({
+    apiKey: chatApiKey.value,
+    provider: chatProvider.value,
+    model: chatModel.value,
+  }))
+  chatShowConfig.value = false
+}
+
+// 监听聊天记录变化，自动持久化到 localStorage
+watch(chatMessages, (msgs) => {
+  // 不保存 pending 状态的占位消息
+  const toSave = msgs.filter(m => !m.pending)
+  if (toSave.length > 0) {
+    localStorage.setItem('ai_chat_messages', JSON.stringify(toSave))
+  } else {
+    localStorage.removeItem('ai_chat_messages')
+  }
+}, { deep: true })
 
 // ---- 报告生成时间 ----
 const reportTime = computed(() => {
@@ -123,6 +172,91 @@ function skillLevel(idx) {
 }
 
 import * as echarts from 'echarts'
+
+// ---- AI 对话方法 ----
+
+/** 发送消息 */
+async function sendChat() {
+  const text = chatInput.value.trim()
+  if (!text || chatSending.value) return
+
+  if (!chatApiKey.value) {
+    chatError.value = '请先配置 API Key'
+    chatShowConfig.value = true
+    return
+  }
+
+  chatError.value = ''
+  chatMessages.value.push({ role: 'user', content: text })
+  chatInput.value = ''
+  chatSending.value = true
+
+  // 添加占位回复
+  chatMessages.value.push({ role: 'assistant', content: '', pending: true })
+
+  try {
+    const res = await post('/api/ai/chat', {
+      messages: chatMessages.value.filter(m => !m.pending),
+      provider: chatProvider.value,
+      api_key: chatApiKey.value,
+      model: chatModel.value || null,
+      include_context: true,
+    })
+
+    // 替换占位消息
+    const last = chatMessages.value[chatMessages.value.length - 1]
+    if (res?.reply) {
+      last.content = res.reply
+    } else {
+      last.content = '抱歉，AI 暂时无法回复。请检查 API Key 和网络连接。'
+    }
+    last.pending = false
+  } catch (e) {
+    const last = chatMessages.value[chatMessages.value.length - 1]
+    last.content = '请求失败，请检查 API Key 和网络连接是否正常。'
+    last.pending = false
+    chatError.value = '请求失败: ' + (e.message || '未知错误')
+  }
+  chatSending.value = false
+}
+
+/** 按 Enter 发送 */
+function onChatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendChat()
+  }
+}
+
+/** 清空对话 */
+function clearChat() {
+  chatMessages.value = []
+  chatError.value = ''
+}
+
+/** 简易 Markdown 渲染（仅处理粗体、标题、列表、代码） */
+function renderMarkdown(text) {
+  if (!text) return ''
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // 粗体
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // 行内代码
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // ### 标题
+    .replace(/^### (.+)$/gm, '<h4 class="md-h4">$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3 class="md-h3">$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2 class="md-h2">$1</h2>')
+    // 无序列表
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+    // 数字列表
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // 换行
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br/>')
+  return '<p>' + html + '</p>'
+}
 
 onMounted(() => loadData())
 </script>
@@ -350,6 +484,110 @@ onMounted(() => loadData())
         </div>
       </section>
 
+      <!-- ====== 十、AI 智能对话 ====== -->
+      <section class="report-section">
+        <h2 class="section-title">
+          <span class="section-num">10</span> AI 智能对话
+          <span class="section-badge">大模型</span>
+        </h2>
+
+        <!-- API 配置区 -->
+        <div class="chat-config" v-if="chatShowConfig || !chatApiKey">
+          <div class="chat-config-hint">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            <span>配置大模型 API Key 后即可使用 AI 对话功能（Key 仅保存在本地浏览器）</span>
+          </div>
+          <div class="chat-config-row">
+            <select v-model="chatProvider" class="chat-select">
+              <option value="siliconflow">硅基流动（推荐）</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+            <input v-model="chatApiKey" type="password" class="chat-key-input"
+              placeholder="粘贴 API Key，如 sk-xxxxxxxx" @focus="chatError=''" />
+            <input v-model="chatModel" type="text" class="chat-model-input"
+              :placeholder="chatProvider === 'siliconflow' ? '模型 (默认 DeepSeek-V3)' : '模型 (可选)'" />
+            <button class="chat-config-btn" @click="saveChatConfig">保存配置</button>
+          </div>
+          <div class="chat-config-links">
+            免费获取 Key：
+            <a href="https://siliconflow.cn" target="_blank">硅基流动</a> ·
+            <a href="https://platform.deepseek.com" target="_blank">DeepSeek</a>
+          </div>
+        </div>
+
+        <!-- 已配置状态条 -->
+        <div class="chat-status" v-else>
+          <span class="chat-status-dot"></span>
+          <span>已配置 {{ chatProvider === 'siliconflow' ? '硅基流动' : chatProvider === 'deepseek' ? 'DeepSeek' : chatProvider === 'openai' ? 'OpenAI' : 'Gemini' }}
+            · Key: {{ chatApiKey.slice(0, 8) }}...</span>
+          <button class="chat-status-edit" @click="chatShowConfig = true">修改</button>
+        </div>
+
+        <!-- 对话区 -->
+        <div class="chat-box">
+          <div class="chat-messages" ref="chatMsgRef">
+            <div v-if="!chatMessages.length && !chatSending" class="chat-welcome">
+              <div class="chat-welcome-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              </div>
+              <div class="chat-welcome-title">招聘 AI 助手</div>
+              <div class="chat-welcome-desc">
+                我可以帮你分析招聘市场数据，解答关于薪资、技能、城市、行业等方面的问题。<br/>
+                试试问我：<br/>
+                <button class="chat-quick-q" @click="chatInput='北京和上海的Python岗位薪资对比如何？'; sendChat()">北京和上海的Python岗位薪资对比如何？</button>
+                <button class="chat-quick-q" @click="chatInput='哪些技能目前市场需求最大？'; sendChat()">哪些技能目前市场需求最大？</button>
+                <button class="chat-quick-q" @click="chatInput='应届生应该学什么技术栈比较好就业？'; sendChat()">应届生应该学什么技术栈比较好就业？</button>
+              </div>
+            </div>
+
+            <div class="chat-msg" v-for="(m, i) in chatMessages" :key="i" :class="'msg-' + m.role">
+              <div class="msg-avatar">
+                <template v-if="m.role === 'assistant'">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+                    <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+                    <path d="M12 14c-6 0-8 3-8 5v1h16v-1c0-2-2-5-8-5z"/>
+                    <circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
+                  </svg>
+                </template>
+                <template v-else>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-2)" stroke-width="2">
+                    <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/>
+                  </svg>
+                </template>
+              </div>
+              <div class="msg-bubble">
+                <div v-if="m.pending" class="msg-pending">
+                  <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+                </div>
+                <div v-else class="msg-content" v-html="renderMarkdown(m.content)"></div>
+              </div>
+            </div>
+
+            <div v-if="chatError" class="chat-err">{{ chatError }}</div>
+          </div>
+
+          <!-- 输入区 -->
+          <div class="chat-input-row">
+            <textarea v-model="chatInput" class="chat-textarea"
+              placeholder="输入你的问题，按 Enter 发送..."
+              :disabled="chatSending" rows="2"
+              @keydown="onChatKeydown"></textarea>
+            <button class="chat-send-btn" @click="sendChat" :disabled="chatSending || !chatInput.trim()">
+              <svg v-if="!chatSending" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+              <span v-else class="sending-spin"></span>
+            </button>
+          </div>
+          <div class="chat-input-hint">
+            <button class="chat-clear-btn" v-if="chatMessages.length" @click="clearChat">清空对话</button>
+            <span>AI 回答仅供参考，数据基于 {{ stats?.total?.toLocaleString() || '22,908' }} 条真实招聘信息</span>
+          </div>
+        </div>
+      </section>
+
       <!-- 报告脚注 -->
       <div class="report-footer">
         <p>本报告由 AI 自动生成，数据来源为招聘平台公开职位信息。仅供学习参考，不构成职业建议。</p>
@@ -557,11 +795,185 @@ onMounted(() => loadData())
   font-size: 12px; color: var(--text-3); margin: 0 0 4px;
 }
 
+  /* ===== AI 对话面板 ===== */
+  .section-badge {
+    font-size: 11px; font-weight: 600; color: var(--primary);
+    background: var(--primary-soft); padding: 3px 10px; border-radius: 12px;
+  }
+
+  /* API 配置 */
+  .chat-config {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 20px 24px; margin-bottom: 16px;
+  }
+  .chat-config-hint {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--text-2); margin-bottom: 14px;
+  }
+  .chat-config-hint svg { flex-shrink: 0; color: var(--orange); }
+  .chat-config-row {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .chat-select, .chat-key-input, .chat-model-input {
+    padding: 9px 14px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; background: var(--bg-page);
+    color: var(--text-1); outline: none; transition: border-color 0.2s;
+  }
+  .chat-select:focus, .chat-key-input:focus, .chat-model-input:focus {
+    border-color: var(--primary);
+  }
+  .chat-select { min-width: 160px; }
+  .chat-key-input { flex: 1; min-width: 220px; }
+  .chat-model-input { width: 180px; }
+  .chat-config-btn {
+    padding: 9px 20px; background: var(--primary); color: var(--text-inverse);
+    border: none; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.2s;
+  }
+  .chat-config-btn:hover { opacity: 0.85; }
+  .chat-config-links {
+    margin-top: 10px; font-size: 12px; color: var(--text-3);
+  }
+  .chat-config-links a { color: var(--primary); text-decoration: none; }
+  .chat-config-links a:hover { text-decoration: underline; }
+
+  /* 配置状态条 */
+  .chat-status {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+    padding: 10px 16px; background: var(--green-soft); border-radius: 8px;
+    font-size: 13px; color: var(--green);
+  }
+  .chat-status-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0;
+  }
+  .chat-status-edit {
+    margin-left: auto; padding: 4px 12px;
+    background: transparent; border: 1px solid var(--green);
+    color: var(--green); border-radius: 6px; font-size: 12px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .chat-status-edit:hover { background: var(--green); color: var(--text-inverse); }
+
+  /* 对话区 */
+  .chat-box {
+    background: var(--bg-card); border-radius: var(--radius-sm);
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .chat-messages {
+    max-height: 480px; overflow-y: auto; padding: 20px 24px;
+  }
+  .chat-messages::-webkit-scrollbar { width: 5px; }
+  .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* 欢迎区 */
+  .chat-welcome { text-align: center; padding: 20px 0; }
+  .chat-welcome-icon { margin-bottom: 12px; opacity: 0.7; }
+  .chat-welcome-title { font-size: 18px; font-weight: 700; color: var(--text-1); margin-bottom: 8px; }
+  .chat-welcome-desc { font-size: 13px; color: var(--text-3); line-height: 1.8; }
+  .chat-quick-q {
+    display: inline-block; margin: 4px 4px; padding: 6px 14px;
+    background: var(--primary-soft); color: var(--primary);
+    border: none; border-radius: 16px; font-size: 12px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .chat-quick-q:hover { background: var(--primary); color: var(--text-inverse); }
+
+  /* 消息 */
+  .chat-msg { display: flex; gap: 12px; margin-bottom: 18px; }
+  .chat-msg.msg-user { flex-direction: row-reverse; }
+  .msg-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-page); flex-shrink: 0;
+  }
+  .msg-assistant .msg-avatar { background: var(--primary-soft); }
+  .msg-bubble { max-width: 78%; }
+  .msg-user .msg-bubble { text-align: right; }
+  .msg-content {
+    font-size: 14px; line-height: 1.75; color: var(--text-1);
+    padding: 12px 16px; border-radius: 14px;
+    background: var(--bg-page); white-space: pre-wrap; word-break: break-word;
+  }
+  .msg-user .msg-content {
+    background: var(--primary-soft); color: var(--text-1);
+  }
+  .msg-content :deep(p) { margin: 0 0 6px; }
+  .msg-content :deep(ul) { margin: 4px 0; padding-left: 18px; }
+  .msg-content :deep(li) { margin: 2px 0; }
+  .msg-content :deep(code) {
+    padding: 2px 6px; border-radius: 4px;
+    background: var(--border); font-size: 0.9em;
+  }
+  .msg-content :deep(strong) { font-weight: 700; color: var(--text-1); }
+  .msg-content :deep(h3) { font-size: 15px; font-weight: 700; margin: 8px 0 4px; }
+  .msg-content :deep(h4) { font-size: 14px; font-weight: 600; margin: 6px 0 4px; }
+
+  /* 打字动画 */
+  .msg-pending { padding: 12px 16px; }
+  .typing-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-3); margin-right: 4px;
+    animation: typingBounce 1.4s infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typingBounce {
+    0%,60%,100% { transform: translateY(0); opacity: 0.3; }
+    30% { transform: translateY(-6px); opacity: 1; }
+  }
+
+  .chat-err {
+    color: var(--red); font-size: 12px; padding: 8px 0; text-align: center;
+  }
+
+  /* 输入区 */
+  .chat-input-row {
+    display: flex; align-items: flex-end; gap: 10px;
+    padding: 14px 20px; border-top: 1px solid var(--border);
+    background: var(--bg-page);
+  }
+  .chat-textarea {
+    flex: 1; padding: 10px 14px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 13px; color: var(--text-1);
+    background: var(--bg-card); outline: none; resize: none;
+    font-family: inherit; transition: border-color 0.2s;
+  }
+  .chat-textarea:focus { border-color: var(--primary); }
+  .chat-textarea:disabled { opacity: 0.5; }
+  .chat-send-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--primary); color: var(--text-inverse);
+    border: none; cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+  }
+  .chat-send-btn:hover:not(:disabled) { opacity: 0.85; transform: scale(1.05); }
+  .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .sending-spin {
+    width: 16px; height: 16px; border: 2px solid var(--text-inverse);
+    border-top-color: transparent; border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .chat-input-hint {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 20px 14px; font-size: 11px; color: var(--text-3);
+    background: var(--bg-page);
+  }
+  .chat-clear-btn {
+    padding: 2px 8px; background: transparent; border: 1px solid var(--border);
+    color: var(--text-3); border-radius: 4px; font-size: 11px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .chat-clear-btn:hover { border-color: var(--red); color: var(--red); }
+
 @media (max-width: 768px) {
   .cover-title { font-size: 22px; }
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .findings-grid, .chart-row, .recommendations { grid-template-columns: 1fr; }
   .health-section { flex-direction: column; }
   .salary-stats { grid-template-columns: repeat(3, 1fr); }
+  .chat-config-row { flex-direction: column; }
+  .chat-select, .chat-key-input, .chat-model-input { width: 100%; min-width: 0; }
 }
 </style>

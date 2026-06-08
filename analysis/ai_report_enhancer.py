@@ -367,6 +367,44 @@ def collect_skill_stats(stats: dict[str, Any]) -> None:
         pass
 
 
+def chat_with_ai(
+    messages: list[dict[str, str]],
+    provider: str,
+    api_key: str,
+    model: str = "",
+    base_url: str = "",
+) -> str | None:
+    """
+    通用 AI 对话接口 — 支持运行时传入配置，不依赖环境变量。
+
+    Args:
+        messages: 对话消息列表 [{"role": "user/system/assistant", "content": "..."}]
+        provider: 平台 (siliconflow / deepseek / openai / gemini)
+        api_key: API Key
+        model: 模型名（可选，默认使用各平台推荐模型）
+        base_url: API 地址（可选，默认使用各平台官方地址）
+
+    Returns:
+        AI 回复文本，失败返回 None
+    """
+    # 构建运行时配置
+    defaults = _PROVIDER_DEFAULTS.get(provider, {})
+    config = {
+        "provider": provider,
+        "api_key": api_key,
+        "model": model or defaults.get("model", ""),
+        "base_url": base_url or defaults.get("base_url", ""),
+    }
+
+    if not config["model"] or not config["base_url"]:
+        return None
+
+    if provider == "gemini":
+        return _call_gemini(messages, config)
+    else:
+        return _call_openai_compatible(messages, config)
+
+
 def collect_model_stats(stats: dict[str, Any]) -> None:
     """补充薪资模型相关的统计信息"""
     try:
